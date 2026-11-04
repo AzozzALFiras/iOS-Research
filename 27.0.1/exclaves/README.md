@@ -74,10 +74,13 @@ is bounds-checked (`cmp idx,count; b.hs → brk`), and there is **no raw uncheck
 segments / symbols / relocations / bindings) from XNU-supplied model bytes — exactly the
 dyld/ImageIO-style bug-prone shape, in C++. Yet it uses the correct discipline: a `ValidHeader`
 gate (magic `0x19`, 8-byte align, size ≥ 0x48, count ≤ 0x100), a `CheckRuntimeDataAccess(ptr,len,
-span)` bounds helper before field reads, and **widening `umull`** for count×size (191 widening vs
-~10 non-widening multiplies, and every non-widening one is a divide-by-constant idiom or a
-bounds-checked `index×stride`). Hardened. (One low-confidence site, `0x83df14c`, noted in
-[`../../STATUS.md`](../../STATUS.md).)
+span)` bounds helper before field reads, and **widening `umull`** for count×size. Over the
+contiguous Shared-parser cluster (`0x83dd000–0x83f375c`) the multiply census is 7 widening `umull`
+and 14 non-widening (`mul`/`madd`); each non-widening one is a divide-by-constant reciprocal idiom
+or a count/index-dominated `index×constant-stride` — 12 provably so, with two downgraded to
+low-confidence (`0x83df14c`, `0x83ec898`). Hardened. (An earlier "191 vs ~10" figure was not
+reproducible and is corrected in [`evidence/ane-validheader.md`](evidence/ane-validheader.md); see
+also [`../../STATUS.md`](../../STATUS.md).)
 
 ## Overall verdict
 
@@ -92,3 +95,22 @@ now extended to a previously-untouched surface, with one genuinely instructive a
 - [`reports/cl4-kernel-pan.md`](reports/cl4-kernel-pan.md) — the VA-capability + PAN proof (flagship "road-blocked").
 - [`reports/exsurface.md`](reports/exsurface.md) — EXSurface layout math (Swift checked-arithmetic).
 - [`reports/ane-zinrt.md`](reports/ane-zinrt.md) — the C++ Mach-O-like ANE deserializer.
+
+## Evidence receipts
+
+Each claim above is backed by a receipt (reproduction command → real disasm pulled from kd-app →
+annotation). The cL4 receipts use the raw-carve ELF-wrapper [`evidence/mkelf.py`](evidence/mkelf.py)
+(the host `llvm-objdump` 18 dropped `-b binary`; the wrapper lets stock `llvm-objdump -d` print
+correct VAs).
+
+- [`evidence/cl4-cap-deref-pan.md`](evidence/cl4-cap-deref-pan.md) — cap deref + SCTLR SPAN=0 + zero-count negative controls (#1).
+- [`evidence/cl4-invoke-typebound.md`](evidence/cl4-invoke-typebound.md) — Invoke dispatch with no type-range check (#2).
+- [`evidence/pmm-bounds.md`](evidence/pmm-bounds.md) — IPC message-register bound + conclave-id fatal (#3).
+- [`evidence/exsurface-checked-arith.md`](evidence/exsurface-checked-arith.md) — `b.vs→brk`, array bounds, zero raw multiplies (#4).
+- [`evidence/ane-validheader.md`](evidence/ane-validheader.md) — ValidHeader widening-`umull` gate + full multiply census (#5).
+- [`evidence/services-dart-bounds.md`](evidence/services-dart-bounds.md) — XnuSharedSegment overflow + three DART bounds (#6).
+
+## 27.3 delta
+
+The 27.3 exclave delta (service-layer churn; cL4 TCB code byte-identical to 27.0.1) is written up in
+[`../../27.3/exclaves/README.md`](../../27.3/exclaves/README.md).

@@ -52,15 +52,21 @@ present in 27.0.1. Overflow-safe.
 
 ## Whole-region multiply classification (negative control)
 
-The sink is any `count*size → alloc/access`. We counted **every** multiply in the ANE region, not a
-sample:
+The sink is any `count*size → alloc/access`. We counted **every** multiply in the contiguous
+Shared-parser cluster `0x83dd000–0x83f375c` (the reproducible region; see
+[`../evidence/ane-validheader.md`](../evidence/ane-validheader.md) for the exact census and a
+per-site classification table):
 
 ```
-widening (safe):  umull / umaddl / smull   = 191
-non-widening:     mul / madd / mneg        =  10   (all verified safe, below)
+widening (safe):  umull / umaddl / smull   =  7
+non-widening:     mul / madd / mneg        = 14   (12 verified safe, 2 low-confidence — below)
 ```
 
-The 10 non-widening 64-bit multiplies are each one of:
+> An earlier draft quoted "191 widening vs ~10 non-widening" for this surface; that figure is not
+> reproducible at any scope (the whole 22 MB sharedcache has 321 `umull` / 2004 `mul`) and has been
+> corrected to the counts above. The qualitative conclusion is unchanged.
+
+The 14 non-widening 64-bit multiplies are each one of:
 
 - **divide-by-constant idioms** — e.g. `asr x11,#3; mul x11, 0xAAAAAAAAAAAAAAAB` (the compiler's
   `/3`/`/24` reciprocal), computing a *count* from a pointer difference, then `cmp; b.hs <reject>`.
@@ -75,11 +81,18 @@ attacker-controlled unchecked multiply reaches an allocation.
 
 ## Residual (honest)
 
-One site, `0x83df14c` (`mul [sp+0x48] × 0x838; add base + …`), could not be *statically* tied to the
-immediately-preceding `cmp x19, count; b.hs`, so we do not claim 100% closure — it is almost
-certainly a validated loop index, logged as low-confidence in
-[`../../../STATUS.md`](../../../STATUS.md). This is the honest downgrade the proof methodology
-requires (coverage #4) rather than rounding up to "safe".
+Two of the 14 non-widening sites are downgraded to low-confidence rather than rounded up to "safe":
+
+- `0x83df14c` (`mul [sp+0x48] × 0x838; add base + …`) — the dominating `cmp x19, [x22,#0x48]; b.hs`
+  is on the spilled copy of the index, not statically tied to the `[sp+0x48]` operand of the
+  multiply. Almost certainly a validated loop index.
+- `0x83ec898` (`mul x8, x9, x8` of two memory operands, store `[x3]`) — a generic `a*b` helper whose
+  inputs need caller context to bound; not demonstrably reachable with attacker-controlled >32-bit
+  factors, but not statically closed here.
+
+Both are logged as low-confidence (see [`../../../STATUS.md`](../../../STATUS.md) and
+[`../evidence/ane-validheader.md`](../evidence/ane-validheader.md)). This is the honest downgrade the
+proof methodology requires (coverage #4) rather than rounding up to "safe".
 
 ## Evidence
 
