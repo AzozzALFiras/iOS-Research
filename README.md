@@ -1,0 +1,100 @@
+# iOS-Research
+
+Static reverse-engineering notes, patch-diffs, and trust-boundary analysis of modern iOS
+system security — **for learning and experimentation**.
+
+**Author:** Azozz ALFiras · [github.com/AzozzALFiras](https://github.com/AzozzALFiras)
+
+---
+
+## ⚠️ Purpose & scope (please read first)
+
+This repository is an **educational security-research notebook**. Its goal is to *understand how
+modern iOS defends itself* — the monitors (SPTM/TXM), the Secure-Kernel "exclave" world, the
+kernel's zone-pointer mitigations, and the media parsers — by reading the shipping firmware and
+writing down, clearly, how each mechanism works and where its trust boundaries are.
+
+- **Everything here is static analysis of publicly downloadable firmware** (Apple IPSWs) and,
+  where a device is involved, of the author's **own research devices** with the owner's
+  authorization. No third-party systems are touched.
+- **No weaponized exploit, no 0-day, no jailbreak is published here.** Where a vulnerability is
+  discussed, it is either (a) already fixed by Apple in a later release (documented as a
+  patch-diff, the way public security writeups do), or (b) a *trust-boundary observation*
+  (e.g. "mitigation X assumes attacker does not yet have capability Y") — not a working attack.
+  The recurring result across this research is, honestly, **"hardened — no exploitable bug
+  found."** That negative result is itself the point: it documents *why* current iOS is hard.
+- The author does this kind of work for **responsible disclosure** (Apple Security Bounty) and
+  for CV / skill development. Nothing in this repo is intended to enable harm to real users or
+  real systems, and it must not be used that way.
+- This is **not** affiliated with or endorsed by Apple. "iOS", "Apple Silicon", SPTM, TXM, etc.
+  are Apple's.
+
+If you are from Apple PSIRT and something here concerns you, please open an issue — happy to
+adjust or take it down.
+
+---
+
+## Platform under study
+
+| | |
+|---|---|
+| Device | iPhone 17,2 (A18 Pro-class, arm64e) |
+| iOS builds | 27.0 (24A437), **27.0.1 (24A446)**, **27.2 (24B119)** |
+| Primary technique | `ipsw` extraction → Ghidra headless decompile → function-body patch-diff → targeted `ipsw macho disass` / REA |
+| Monitors | SPTM `820.0.22` (27.0.1) / `820.40.24` (27.2), TXM `v7.0.0`, SK/cL4 exclave kernel |
+
+See [`methodology/`](methodology/) for the full toolchain and the patch-diff pipeline.
+
+---
+
+## What's inside
+
+```
+27.0.1/
+  sptm/            Secure Page Table Monitor: architecture + GL1 attack surface + findings
+  txm/             Code-Signing Monitor (TXM): W^X / code-signing enforcement audit
+  exclaves/        Secure-Kernel (cL4) "exclave" world: bundle teardown, pmm, kernel, services
+  kernel-zone/     XNU zone-pointer validation, proc_task layout, the post-R/W trust boundary
+  iokit-fuzzing/   On-device black-box IOKit fuzzing (Phase 0–2), honest low-yield result
+  media-parsers/   ImageIO / CMPhoto / MediaToolbox zero-click decode surface (static audit)
+27.2/              What changed in 27.2 (advisory mapping + per-area notes)
+diffs/             27.0.1 → 27.2 function-body patch-diffs (confirmed-patched bugs, with evidence)
+methodology/       Tooling, extraction, the decompile+diff pipeline, environment
+STATUS.md          Where we got to · open questions · not-yet-reached — the honest map
+```
+
+---
+
+## TL;DR of the findings
+
+A one-paragraph honest summary (full detail in [`STATUS.md`](STATUS.md)):
+
+- **Media parsers (ImageIO/USD/CoreMedia/CoreGraphics + some kernel kexts):** several memory-safety
+  bugs were precisely reverse-engineered **but all were already patched by Apple in 27.2** (clean
+  patch-diffs with before/after). Every variant hunt came back negative → the current media
+  surface is a saturated, well-combed target.
+- **SPTM / TXM monitors:** fully mapped architecturally; six 27.0.1→27.2 hardening changes
+  located. After deep reachability tracing only the T8110 DART concurrency fix held up as a real
+  GL1-runtime bug (already patched); one TLB-verification fix turns out to be DeviceTree-gated-off
+  on this device. No unpatched, bounty-eligible monitor bug confirmed.
+- **Exclaves (first teardown in this project):** the physical-memory manager (C), the cL4
+  micro-kernel, the EXSurface service (Swift) and the ANE compute-program deserializer (C++)
+  were each audited — **all comprehensively hardened.** The most interesting finding is
+  architectural, not a bug: the micro-kernel addresses capabilities by a raw caller pointer with
+  no software bound, and is kept safe purely by **PAN** (Privileged Access Never) + the AP[1]/PAN
+  mutual exclusion.
+- **Kernel zone mitigations:** `zone_id_require` (165 sites) is bypassable *once you already have
+  kernel R/W* (the metadata array is writable), but the real wall — read-only (`ZC_READONLY`)
+  zones holding credentials — holds against **data-only** R/W. That wall is itself only a
+  data-only boundary: it falls to **EL1 code-execution** (the `sprr_pperm_el1` remap is
+  EL1-writable), which is in turn what PAC + CTRR + SPTM exist to prevent.
+
+**Net:** current iOS (27.0.1) is hardened across every surface examined here. The value of this
+repo is the *map* — the mechanisms, the trust boundaries, and the methodology — not a break.
+
+---
+
+## License
+
+Documentation and original analysis © Azozz ALFiras, released for educational use
+(see [`LICENSE`](LICENSE)). Firmware, symbol names, and Apple trademarks belong to Apple Inc.

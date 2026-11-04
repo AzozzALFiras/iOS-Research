@@ -1,0 +1,16 @@
+# Never commit firmware, binaries, or raw dumps — this repo is documentation only.
+*.ipsw
+*.im4p
+*.bin
+*.dylib
+*.a2s
+*.qasm
+*.asm
+*.decomp.c
+kernelcache*
+dyld_shared_cache*
+raw_bundle*
+extracted/
+firmware/
+*.sks
+.DS_Store
