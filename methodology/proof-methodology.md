@@ -5,6 +5,10 @@ Reverse-engineering a mitigation produces one of two verdicts. Both are real res
 "hardened" verdicts as much as the "bug" ones. (Most of this research lands on **hardened** — that
 is the honest signal that current iOS is well-defended, and documenting *why* is the point.)
 
+> This note defines the *bar*. For the *mechanical how-to* — getting from a public IPSW to the exact
+> bytes a report cites, the extraction commands, the verifier gotchas, and the `evidence/<slug>.md`
+> receipt convention — see [`verification-guide.md`](verification-guide.md).
+
 ---
 
 ## A. Proving the road is blocked (a path is NOT exploitable / is hardened)

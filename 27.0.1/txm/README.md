@@ -67,3 +67,6 @@ bug; the surface is sound and hardened**, matching the project-wide pattern. The
 
 - [`reports/enforcement-audit.md`](reports/enforcement-audit.md) — the full W^X/code-signing chain,
   the uncovered-tail bypass refutation, and the inconclusive digest-refactor diff.
+- [`evidence/wx-type-gate.md`](evidence/wx-type-gate.md) — reproduction command + real disasm of the
+  `type != 0xe → FUN_0x17039970(0x90)` violation gate in `FUN_0x170308cc` (the bypass refutation,
+  verifiable).

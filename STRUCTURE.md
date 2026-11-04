@@ -9,10 +9,13 @@ Read this before adding a new version or area.
 README.md            Project overview, purpose, ethics/scope, TL;DR.
 STATUS.md            The honest map: done · open questions · not-yet-reached. Update every session.
 STRUCTURE.md         This file.
-methodology/         Version-AGNOSTIC: tooling, the patch-diff pipeline (+ scripts), proof criteria.
+methodology/         Version-AGNOSTIC: tooling, the patch-diff pipeline (+ scripts), proof criteria,
+                     and verification-guide.md (reproduce any claim from a public IPSW).
 common/              Version-AGNOSTIC reference: glossary, shared tables.
-<version>/           One folder per iOS build studied: 27.0.1/, 27.2/, and future 27.x/, 28.x/ …
-diffs/<from>-to-<to>/ Cross-version patch-diffs (inherently span two builds).
+<version>/           One folder per iOS build studied: 27.0.1/, 27.2/, 27.3/, and future 27.x/, 28.x/ …
+                     (27.2/ and 27.3/ are concise landing pages; their findings live in diffs/.)
+diffs/               Cross-version analysis. diffs/README.md = 3-way overview; diffs/evidence/ =
+  <from>-to-<to>/    cross-version receipts; diffs/<from>-to-<to>/ = per-step patch-diffs.
 assets/              Images/diagrams referenced by the docs.
 ```
 
@@ -45,6 +48,11 @@ put there. `README.md`, `reports/`, and `evidence/` are the usual minimum.
 
 - **Every claim is falsifiable.** A report states the mechanism, then points at the `evidence/`
   (an address, a disasm excerpt, a measured number) that proves it. No hand-waving.
+- **The `evidence/<slug>.md` convention is populated** — per-build receipts under
+  `<version>/<area>/evidence/` (e.g. `27.0.1/kernel-zone/evidence/proc-task-accessor.md`) and
+  cross-version receipts under `diffs/evidence/` (sizes, version tags, DeviceTree grep, disasm).
+  Each receipt = **Claim → Reproduction (exact command) → pulled output → annotation**. The how-to is
+  [`methodology/verification-guide.md`](methodology/verification-guide.md).
 - **Two outcomes, both documented honestly** (see
   [`methodology/proof-methodology.md`](methodology/proof-methodology.md)):
   - **"road blocked" / hardened** — *how we proved a path is not exploitable* (the guards, the

@@ -48,6 +48,44 @@ clients, giving the exact arg shapes of the real parse surface:
 These shapes are what a *targeted* content-fuzz would need; the blind runs showed why they are
 necessary. The on-device data confirms 27.0.1's IOKit sandbox surface is well-gated.
 
+### Drilled detail — the wrapper validates, two `VAR` workers are bounded
+
+The `IOExternalMethodDispatch2022` wrapper enforces each selector's `(scalarInputCount,
+structInputSize)` *before* the handler runs; the fixed-size selectors are rejected pre-parse on any
+mismatch (this is the ~89% arg-gate). The remaining risk is the `VAR` (variable-struct) selectors,
+where the handler itself must bound the input. Two of them were drilled to the instruction level and
+are **bounded**:
+
+- **sel 9** (`VAR` in): wrapper `0xfffffff00a34bd74` floors `structInputSize ≥ 0xd`, then its worker
+  `0xfffffff00a34f600` hands the payload to a length-aware deserializer `0xfffffff00b28f330` as an
+  explicit `(ptr = structInput+0xc, len = structInputSize−0xc)` pair, where `len` is computed as a
+  **pointer difference from the real buffer extent** (`end − start`), not a raw length field.
+- **sel 26** (`VAR` in): wrapper `0xfffffff00a34c690` floors `structInputSize ≥ 0xd`
+  (`ccmp w25, #0xd`, with `w25 = [args+0x38]`), passes the size in `x3` (`mov x3, x25`) to worker
+  `0xfffffff00a3529c4`, which reads exactly `structInput[structInputSize−1]` (a trailing-NUL check) —
+  in-bounds because the floor guarantees the index `0xc + (size−0xd) = size−1 < size`.
+
+Handler pointers were decoded from **raw** `__const` bytes
+(`vaddr = 0xfffffff007004000 + (raw & 0xffffffff)`), since `ipsw macho dump --addr` can mis-resolve
+them. **AppleJPEGDriver** sel 4/5/6/7 take fixed struct sizes (`0x1000`/`0xda0`) and range-check the
+dimension/resolution fields (component ≤ `0xff`, dimension high-word = 0 ⇒ ≤ `0xffff`) with the
+giveaway error string *"i/o sizes are illegal … Horz/Vert Resolutions are not set"*.
+
+## Evidence
+
+Every claim above has a reproduction command + real disasm pulled from the 27.0.1 kernelcache:
+
+- [`evidence/iosurface-dispatch-table.md`](evidence/iosurface-dispatch-table.md) — all 60 selectors
+  decoded from raw bytes (the authoritative handler VAs + `(scalarIn, structIn)` shapes).
+- [`evidence/iosurface-sel9-deserializer.md`](evidence/iosurface-sel9-deserializer.md) — sel 9 floor
+  + bounded `(ptr, len)` slice into the deserializer.
+- [`evidence/iosurface-sel26-lastbyte.md`](evidence/iosurface-sel26-lastbyte.md) — sel 26 floor,
+  `mov x3, x25` marshalling, and the bounded last-byte read.
+- [`evidence/applejpeg-dispatch-table.md`](evidence/applejpeg-dispatch-table.md) — the 10-selector
+  table, all fixed struct sizes.
+- [`evidence/applejpeg-dimension-bound.md`](evidence/applejpeg-dimension-bound.md) — the sel-4
+  worker's dimension range-checks + the diagnostic string.
+
 ## Code & experiments
 
 - [`code/`](code/) — the fuzzer C API contract (`FuzzCore.h`) + the safety-model write-up.

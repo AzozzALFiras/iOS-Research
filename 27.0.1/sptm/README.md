@@ -29,7 +29,11 @@ Binary: `Firmware/sptm.t8140.release.im4p` → arm64e Mach-O, stripped. 27.0.1 =
   `__builtin_*_overflow`-checked before use. CTRR/AMCC hardware lockdown backs the static regions.
 
 See [`reports/architecture.md`](reports/architecture.md) for the full evidence-cited write-up (also
-an attack-surface enumeration suitable for discussion with Apple — it claims **no** bug).
+an attack-surface enumeration suitable for discussion with Apple — it claims **no** bug). Each
+architectural claim is backed by a reproducible disassembly receipt in [`evidence/`](evidence/):
+[dispatch state machine](evidence/dispatch-state-machine.md),
+[retype core + type lattice](evidence/retype-core.md),
+[retype commit handlers (W^X / type 0x0b)](evidence/retype-commit-handlers.md).
 
 ## 27.0.1 → 27.2 findings (all already patched — documented as a diff, not a 0-day)
 
@@ -53,6 +57,18 @@ repurposed page) is strongly supported but **inferred** — it needs dynamic con
 there is public prior art (cinder27, iPhone19,7/v64sap), so it is likely not bounty-novel.
 
 Full detail, all six with before/after evidence: [`reports/findings.md`](reports/findings.md).
+Reproducible receipts for the three verified items:
+[§F2 refcount engine (a 27.2 feature)](evidence/f2-iommu-refcount-engine.md),
+[§F5 T8110 DART race](evidence/f5-t8110-dart-gapf.md),
+[GMMU-TLBI DeviceTree gating (all 3 builds)](evidence/gmmu-tlbi-devicetree-gating.md).
+
+## Across three builds (27.0.1 → 27.2 → 27.3)
+
+The SPTM delta over all three studied builds — what changed each step, which item is a real bug,
+and the GMMU-TLBI gating that persists on this device through 27.3 — is summarized in
+[`reports/three-version-diff.md`](reports/three-version-diff.md). The 27.3-specific addition (the
+boot-time `REMAP_REGION_RNX` endpoint) is documented in
+[`../../27.3/sptm/README.md`](../../27.3/sptm/README.md).
 
 ## Fresh hunt (not patch-diff)
 

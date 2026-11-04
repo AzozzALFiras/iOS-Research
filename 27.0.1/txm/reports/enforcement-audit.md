@@ -42,6 +42,13 @@ XNU cannot set type `0xe` directly). So in a validated region only the covered p
 the tail is `0x3b` and **cannot** be exec-mapped. The `+0x18` cache correctly applies only to
 validated code. **No code-signing bypass.**
 
+The gate is disassembled byte-for-byte in
+[`../evidence/wx-type-gate.md`](../evidence/wx-type-gate.md): in `FUN_0x170308cc` the type comes
+from `bl 0xfffffff01703cfd0`, the switch tests `cmp w19, #0xe` and `b.ne loc_fffffff017030e10`, and
+that else-branch is `mov w0, #0x90 ; bl 0xfffffff017039970` (the violation handler, which formats the
+monitor-fault string `"[code: 0x%08X | %u]"`). The CODE/exec path is the fall-through reached **only**
+when `type == 0xe`.
+
 ## Patch-diff (inconclusive, deliberately not escalated)
 
 ~34 changed + 6 inserted functions, concentrated in one subsystem: a recursive **digest**

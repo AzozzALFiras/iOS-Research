@@ -83,13 +83,57 @@ proof, but low yield for a *reportable* 0-day. See [`diffs/`](diffs/) and
   arg-shape gate + getters dominate. Recovered static dispatch tables for the real parse surface.
   See [`27.0.1/iokit-fuzzing/`](27.0.1/iokit-fuzzing/).
 
+### Three-version trajectory — 27.0.1 → 27.2 → 27.3 beta
+Full 3-way diff with reproducible evidence: [`diffs/`](diffs/). Builds iPhone17,2 24A446 → 24B119 →
+24C5037i. Measured (receipts in [`diffs/evidence/`](diffs/evidence/)): SPTM `820.0.22 → 820.40.24 →
+820.60.12`; TXM byte-identical (`txm-374`, 557,088 B) throughout; exclave bundle 32,325,632 →
+32,555,008 → 32,980,992 B (+224 KiB, then +416 KiB); kernelcache 77,987,840 → 78,315,520 →
+79,364,096 B.
+
+- **27.0.1 → 27.2** = media memory-safety fixes + SPTM §F5 DART-race fix + §F2 `iommu_read_refcnt`
+  consistency panic **added** + §F1/§F6 GMMU-TLBI verify block **added-but-DeviceTree-gated-off**.
+- **27.2 → 27.3β** = SPTM new boot-time `REMAP_REGION_RNX` endpoint (strings 0/0/3) + PAPT refactor;
+  services churn; **no** new security fix to any tracked surface (SPTM/TXM/exclaves/media/tracked
+  kexts). Media/CoreGraphics/CoreMedia/USD: feature + recompile only, 27.2 fixes intact.
+- **Persistence (live across all three):** the GMMU-TLBI DeviceTree key `verify-gmmu-tlbis-at-sync`
+  is **absent on d94ap in ALL THREE** (count 0/0/0; sibling keys present) ⇒ SPTM's GMMU-TLBI verify
+  is inert on this device throughout — defense-in-depth gap with public prior art, **not** bounty-novel.
+  SPRR `sprr_pperm_el1` still EL1-writable (plain `msr`, no GXF gate) in 27.3β ⇒ RO wall is a
+  data-only boundary in all three. proc_task layout / zone-id `0x1a` stable (27.3 address shift only).
+
+### 27.0.1 deep re-verification — the 8-agent fan-out (2026-11-04)
+Independent re-audit of every 27.0.1 surface. **All verdicts: hardened / benign / defense-in-depth.**
+- **SPTM §F2** (`iommu_read_refcnt` invariant) = **defense-in-depth** (adds a consistency panic;
+  desync reachability unproven — accounting code byte-identical across versions).
+- **SPTM retype / type-class `0x0b` accessor churn** = **benign** (codegen, no new validation).
+- **Exclaves**: cL4 capability model safe by **PAN** (0 PAN-bypass ops kernel-wide); **pmm**, Swift
+  **EXSurface**, C++ **ANE ZinRt** deserializer all hardened.
+- **Kernel-zone**: RO-wall **write-side** (SPRR flip), **content** (RO-element forgery), and
+  **reader-side** all re-examined — hardened, with **one residual data-only lead** (below).
+- **IOKit**: user-client wrapper + worker paths hardened; **media parsers** saturated/patched.
+- **Correction:** `zalloc_ro_mut` is at unslid **`0xfffffff00ac482b8`** (supersedes the
+  `0xfffffff00b4112cc` cited in `27.0.1/kernel-zone/reports/trust-boundary.md` — that report is owned
+  by another track; the authoritative address for the RO-mutation entry is the value here).
+
 ---
 
 ## ❓ Open questions (investigated, not fully closed)
 
-1. **SPTM GMMU-TLBI race (§3/§6)** — strongly supported as live on 27.2 (DT-gated-off), but the
-   exploit (stale GPU translation → DMA to a repurposed page) is *inferred*, not dynamically
-   confirmed, and has public prior art. Needs Corellium / on-HW timing to confirm.
+0. **THE open data-only lead — `fg_cred` / `so_cred` reader-side.** After the 8-agent fan-out, the
+   single residual not-closed lead is the **reader-side** handling of file-/socket credentials
+   (`fg_cred`/`so_cred`): whether a data-only R/W can influence a credential *read* path (as opposed
+   to the RO-zone *write* wall, which holds). Not a confirmed bug — the one honest place a data-only
+   primitive might still reach. Everything else on the kernel-zone surface is hardened.
+0b. **AGXG17P GPU channel-index OOB read** (surfaced by the 27.2→27.3 kext diff) — a real OOB read
+   **live in 27.2 and 27.0.1**, fixed only in 27.3 beta. Severity hinges on **reachability**: likely
+   an entitlement-gated GPU-profiling path, and PAC-vtable (`blraa`) dispatch hid the `IOUserClient` +
+   selector. Needs vtable/class recovery + a dynamic reachability test from an unprivileged sandbox.
+   Classified "confirmed OOB read, reachability pending". See
+   [`diffs/27.2-to-27.3/`](diffs/27.2-to-27.3/).
+1. **SPTM GMMU-TLBI race (§F1/§F6)** — DeviceTree-gated-off on d94ap across **all three** builds
+   (`verify-gmmu-tlbis-at-sync` absent, confirmed 0/0/0), so the verify is inert here; but the exploit
+   (stale GPU translation → DMA to a repurposed page) is *inferred*, not dynamically confirmed, and
+   has public prior art. Needs Corellium / on-HW timing to confirm. Defense-in-depth, not bounty-novel.
 2. **SPTM IOMMU read-refcount invariant (§1)** — 27.2 adds a consistency panic; we could not prove
    the desync is reachable from unchanged accounting code. Likely needs dynamic testing.
 3. **Kernel-zone exploitation path** — does a *practical PAC-defeating call-primitive* to
@@ -105,9 +149,10 @@ proof, but low yield for a *reportable* 0-day. See [`diffs/`](diffs/) and
 
 - **Dynamic confirmation** of any SPTM/kernel inference — requires Corellium or an on-device
   harness; all monitor work here is static.
-- **27.2 diff of the zone-metadata submap / SPRR config** — did Apple make the metadata submap
-  read-only, or trap `msr sprr_pperm_el1` to GL, in 27.2? (Would move walls from data-only to
-  code-exec.) Quick, concrete, not yet run.
+- ~~**27.2 diff of the zone-metadata submap / SPRR config**~~ — **answered (No, through 27.3β).**
+  The SPRR RO-zone worker still flips `sprr_pperm_el1` with a plain EL1 `msr` (no GL/GXF trap) and the
+  zone anchors are still `__DATA_CONST` r--, byte-identical idiom in 27.2 and 27.3 beta. The walls
+  remain **data-only** boundaries. Receipt: [`diffs/evidence/sprr-ro-wall.md`](diffs/evidence/sprr-ro-wall.md).
 - **Other exclave services** — XnuSharedSegment mapping, SharedDARTMapperService, securepairingd /
   corespeechd / the rest of the conclaves, roottask (7 MB Swift). Diminishing returns expected.
 - **Remaining ImageIO decoders** with 27.2 CVEs not yet mapped (PSD / KTX / KTX2 / BC).

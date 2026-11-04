@@ -49,11 +49,14 @@ Credentials and process security state do **not** live in the forgeable regular 
 RO zones — `proc_ro`, `ucred`/`kauth_cred` (uid/gid/groups + MAC label + audit), `cs_blob` (code
 signing) — which are genuinely immutable under **data-only** R/W:
 
-- `zone_require_ro` @ `0xfffffff00b411164` (separate id namespace).
-- Mutation funnels through `zalloc_ro_mut` @ `0xfffffff00b4112cc` → pmap worker
-  `sub_fffffff00ad31c08`, which brackets the write with IRQs off and an **SPRR permission flip**
-  (`msr sprr_pperm_el1`, index `0xa`→`0xb`→`0xa`). RO-zone pages are read-only in the normal SPRR
-  domain → a data-only arbitrary write **faults**.
+- `zone_require_ro` @ `0xfffffff00b411164` (separate id namespace, 107 call sites).
+- Mutation funnels through the public `zalloc_ro_mut` @ **`0xfffffff00ac482b8`** (54 callers) → pmap
+  worker `pmap_ro_zone_memcpy` @ `0xfffffff00ad31c08`, which **validates the dst element and src
+  range first** (`bl 0xfffffff00ad31d84` + `bl 0xfffffff00b41dce0`), then brackets the copy with IRQs
+  off and an **SPRR permission flip** (`msr sprr_pperm_el1`, index `0xa`→`0xb`→`0xa`). RO-zone pages
+  are read-only in the normal SPRR domain → a data-only arbitrary write **faults**.
+  *(`0xfffffff00b4112cc`, cited in earlier drafts as `zalloc_ro_mut`, is an internal once-called cold
+  worker — not the public API. See [`evidence/zalloc-ro-mut.md`](evidence/zalloc-ro-mut.md).)*
 - `proc_task` (id `0x1a`) has an RO companion `proc_ro` with **panic-enforced** bidirectional
   backrefs ("proc_ro->task backref mismatch") → forging a `proc_task` alone is insufficient.
 
@@ -99,3 +102,17 @@ the PAC + CTRR + SPTM triad — *not* SPRR by itself. This is exactly why the SP
 - [`reports/trust-boundary.md`](reports/trust-boundary.md) — the full post-R/W chain with the SPRR-flip disasm (flagship).
 - [`reports/zone-id-validation.md`](reports/zone-id-validation.md) — how `zone_require`/`zone_id_require` works + the forgeable metadata.
 - [`reports/proc-task-layout.md`](reports/proc-task-layout.md) — confirmed `proc_task` offsets, cross-checked vs the Chollima demo.
+- [`reports/content-trust.md`](reports/content-trust.md) — the 54 RO-mutation callers, csflags SET/CLEAR setters, and why no caller copies a raw user buffer into an RO cred/csflags field.
+- [`reports/reader-gating.md`](reports/reader-gating.md) — the inline `zone_require_ro` on cached `t_tro`/`p_proc_ro` pointers (the 1058-caller hot reader) + the one open lead (`fg_cred`/`so_cred`).
+- [`reports/three-version-diff.md`](reports/three-version-diff.md) — 27.0.1 → 27.2 → 27.3: did zone-metadata writability, SPRR gating, or `proc_task` change? (No — only addresses shifted.)
+
+## Evidence
+
+Every claim above has a reproduction command + pulled disassembly + annotation under
+[`evidence/`](evidence/): [`proc-task-accessor`](evidence/proc-task-accessor.md),
+[`zone-id-require`](evidence/zone-id-require.md), [`zalloc-ro-mut`](evidence/zalloc-ro-mut.md),
+[`pmap-ro-zone-memcpy`](evidence/pmap-ro-zone-memcpy.md),
+[`ro-zone-validators`](evidence/ro-zone-validators.md), [`sprr-flip`](evidence/sprr-flip.md),
+[`csflags-setters`](evidence/csflags-setters.md), [`cred-reader-ttro`](evidence/cred-reader-ttro.md),
+[`proc-ro-reader`](evidence/proc-ro-reader.md). All disasm pulled from
+`kernelcache.release.iPhone17,2` (24A446) via `ipsw macho disass -t com.apple.kernel` on `kd-app`.

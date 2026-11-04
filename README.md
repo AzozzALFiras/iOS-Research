@@ -38,12 +38,20 @@ adjust or take it down.
 
 | | |
 |---|---|
-| Device | iPhone 17,2 (A18 Pro-class, arm64e) |
-| iOS builds | 27.0 (24A437), **27.0.1 (24A446)**, **27.2 (24B119)** |
+| Device | iPhone 17,2 (A18 Pro-class, arm64e), DeviceTree `d94ap` |
+| iOS builds | 27.0 (24A437), **27.0.1 (24A446)**, **27.2 (24B119)**, **27.3 beta (24C5037i)** |
 | Primary technique | `ipsw` extraction → Ghidra headless decompile → function-body patch-diff → targeted `ipsw macho disass` / REA |
-| Monitors | SPTM `820.0.22` (27.0.1) / `820.40.24` (27.2), TXM `v7.0.0`, SK/cL4 exclave kernel |
+| SPTM (measured) | `820.0.22` (27.0.1) → `820.40.24` (27.2) → `820.60.12` (27.3β) |
+| TXM (measured) | `txm-374`, **byte-identical** (557,088 B) across all three builds |
+| Also | SK/cL4 exclave kernel; exclave bundle 32.33 → 32.56 → 32.98 MB |
 
-See [`methodology/`](methodology/) for the full toolchain and the patch-diff pipeline.
+**Three-version trajectory:** 27.0.1 → 27.2 = media + monitor hardening (all confirmed-patched);
+27.2 → 27.3β = feature + recompile, **no** new fix to any tracked surface. The standout
+live-across-all-three observation is the GMMU-TLBI DeviceTree gating gap (defense-in-depth, public
+prior art). See [`diffs/`](diffs/) for the full 3-way diff with reproducible evidence.
+
+See [`methodology/`](methodology/) for the full toolchain and the patch-diff pipeline, and
+[`methodology/verification-guide.md`](methodology/verification-guide.md) to reproduce any claim.
 
 ---
 
@@ -55,6 +63,7 @@ STRUCTURE.md       Folder conventions (how this scales as more iOS versions are 
 methodology/       Tooling, the decompile+diff pipeline (+ scripts), and how we PROVE a verdict
   patch-diff-scripts/   the normalized function-body diff tooling (runnable)
   proof-methodology.md  how we prove "road blocked / hardened" vs "success / real bug"
+  verification-guide.md how to reproduce ANY claim from a public IPSW (extraction + gotchas)
 common/            Version-agnostic reference (glossary of SPTM/TXM/SPRR/PAN/CTRR/zone terms)
 27.0.1/            The primary build studied. Each area = README (summary) + reports/ + evidence/
   sptm/            Secure Page Table Monitor: architecture + GL1 attack surface + 6 findings
@@ -63,8 +72,13 @@ common/            Version-agnostic reference (glossary of SPTM/TXM/SPRR/PAN/CTR
   kernel-zone/     zone-pointer validation, proc_task layout, the post-R/W trust boundary
   iokit-fuzzing/   On-device IOKit fuzzing (code/ + experiments/), honest low-yield result
   media-parsers/   ImageIO / CMPhoto / MediaToolbox zero-click decode surface (static audit)
-27.2/              What changed in 27.2 (advisory mapping + per-area notes)
-diffs/27.0.1-to-27.2/  function-body patch-diffs (confirmed-patched bugs, before/after evidence)
+27.2/              Landing page: what changed in 27.2 (advisory mapping; findings live in diffs/)
+27.3/              Landing page: 27.3 beta = feature + recompile, no new tracked-surface fix
+diffs/             Cross-version analysis — START HERE for the 3-version story
+  README.md             the 3-way overview + trajectory + persistence-findings table
+  evidence/             reproducible receipts (sizes, version tags, DeviceTree grep, disasm)
+  27.0.1-to-27.2/       function-body patch-diffs (confirmed-patched bugs, before/after)
+  27.2-to-27.3/         feature release; AGXG17P GPU OOB-read fix (live in 27.2/27.0.1, reach pending)
 ```
 
 New to the repo? Read `STATUS.md` (the map), then `methodology/proof-methodology.md` (how claims are

@@ -31,18 +31,26 @@ of these.
 > is **absent on iPhone17,2** → the "fix" is inert on this device, so 27.2 behaves like 27.0.1
 > here. The underlying race is therefore technically live on 27.2 too — but there is public prior
 > art (cinder27, analysed on a different device), so it is likely **not** bounty-novel. Report:
-> `SPTM_GMMU_TLBI_fix_gating_gap`.
+> `SPTM_GMMU_TLBI_fix_gating_gap`. The key is still absent (verify still inert) on this device in
+> **27.3** as well — evidence across all three builds:
+> [`../evidence/gmmu-tlbi-devicetree-gating.md`](../evidence/gmmu-tlbi-devicetree-gating.md).
 
-## F2 — IOMMU read-refcount invariant
+## F2 — IOMMU read-refcount invariant — **a 27.2 feature, not a 27.0.1 bug**
 
 27.0.1 `FUN_…dfd44` → 27.2 `FUN_…e0c38` adds `if (read_refcnt[fte+8] < iommu_read_refcnt[fte+5])
-PANIC "iommu_read_refcnt > read_refcnt for FTE"`. This is a refcount-desync → IOMMU
-use-after-retype / DMA-to-repurposed-page class. **Reachability unproven:** the accounting functions
-(`FUN_…d7704` map handler, `FUN_…b7b20` reader) are byte-identical across versions, so if a desync
-is reachable it is reachable in *both* — 27.2 only adds the consistency *panic* (downgrades silent
-corruption to DoS). We could not statically show the unchanged accounting produces
-`iommu_read_refcnt > read_refcnt` (the FTE `+5` byte is union-typed, a trap for the unwary). Needs
-dynamic testing.
+PANIC "iommu_read_refcnt > read_refcnt for FTE"`.
+
+**Re-verified conclusion (engine-level):** the `iommu_read_refcnt` field (FTE `+5`) and its invariant
+are **new in 27.2**, so §F2 cannot be a patched 27.0.1 defect. The refcount engine
+`iommu_update_page_refcount` is `FUN_0xfffffff0270e44fc` in 27.0.1 and `FUN_0xfffffff0270e5414` in
+27.2. 27.0.1 touches **only** the word counters at FTE `+8` (`read_refcnt`) and `+0xc` (`wx_refcnt`)
+via word `ldadd` — there is no `ldaddb` and no `+5` access anywhere in it. 27.2 **adds** a byte
+`ldaddb` on FTE `+5` (`add x11,x0,#0x5 ; ldaddb`). The `iommu_read_refcnt` string count is **0 in
+27.0.1** and **2 in 27.2**. So 27.2 introduced the counter *and* its consistency panic together: a
+new accounting field plus a guard on it — **defense-in-depth, not a fix for a 27.0.1 bug.** Whatever
+desync the panic catches would require dynamic testing on 27.2+, but it has no 27.0.1 analogue
+because the field does not exist there. Evidence:
+[`../evidence/f2-iommu-refcount-engine.md`](../evidence/f2-iommu-refcount-engine.md).
 
 ## F3 — NVMe security subsystem (11-function rewrite)
 
@@ -66,6 +74,8 @@ race in DART clock-protection config. 27.2 adds a per-slice lock (`+0x10`, strid
 race-detect panic (`VIOLATION_T8110_DART_UNGANG_GAPF_RACE`, string 0→1) + an owner-token RMW guard.
 This holds up as a genuine GL1-runtime concurrency bug — **already patched**, and the fix looks
 complete (variant hunt found no unpatched cross-variant sibling; GAPF-ungang is T8110-specific HW).
+Evidence (the 27.0.1 unprotected `casab` RMW + the string 0→1 diff):
+[`../evidence/f5-t8110-dart-gapf.md`](../evidence/f5-t8110-dart-gapf.md).
 
 ## F6 — GMMU/SAPT TLBI-verify (broad) + F7 UAT Dekker lock
 
@@ -81,3 +91,6 @@ SPTM defect *class* is **concurrency / TLB-coherence / invariant**, not missing-
 spatial-safety layer is exhaustively hardened (see [`architecture.md`](architecture.md)). The only
 road to a genuinely exploitable *unpatched* SPTM bug is fresh hunting of 27.2 + dynamic confirmation
 — open-ended, not done.
+
+For how these changes continue into 27.3 (and the one new boot-time endpoint added there), see
+[`three-version-diff.md`](three-version-diff.md) and [`../../../27.3/sptm/README.md`](../../../27.3/sptm/README.md).

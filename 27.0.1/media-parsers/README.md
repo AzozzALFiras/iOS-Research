@@ -62,3 +62,8 @@ and are already fixed.
 
 - [`reports/heif-decode-map.md`](reports/heif-decode-map.md) — the full HEIF/HEIC decode routing map
   (ImageIO → CMPhoto → MediaToolbox → CoreMedia) and the 5-layer ISOBMFF audit.
+- [`evidence/heif-isobmff-audit.md`](evidence/heif-isobmff-audit.md) — the routing map, the 5-layer
+  target/VA table with per-layer repro commands, and an **honest evidence-availability note**: the
+  media-parser dylibs (ImageIO/CMPhoto/MediaToolbox/CoreMedia) are **not** in the 27.0.1 DSC
+  extraction on `kd-app` (verified via `ipsw dyld image`), so per-layer disasm must be re-pulled
+  against a full cache — no media disasm is fabricated.

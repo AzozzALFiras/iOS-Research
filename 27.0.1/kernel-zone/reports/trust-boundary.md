@@ -33,24 +33,42 @@ Credentials and process security state live in **read-only (`ZC_READONLY`) zones
 immutable under **data-only** R/W. The sink we must deny is "write to a `proc_ro`/`ucred` page"; the
 guard is **SPRR**.
 
-Mutation funnels through `zalloc_ro_mut` (`0xfffffff00b4112cc`) → the pmap RO-write worker
-`sub_fffffff00ad31c08`, which brackets the write with IRQs off and an SPRR permission flip:
+Mutation funnels through the public `zalloc_ro_mut` (**`0xfffffff00ac482b8`**, 54 callers) → the pmap
+RO-write worker `pmap_ro_zone_memcpy` (`0xfffffff00ad31c08`). The worker **validates both operands
+before** it touches the permission register, then brackets the copy with IRQs off and an SPRR
+permission flip:
+
+> ★ **Address correction.** Earlier drafts named `0xfffffff00b4112cc` as `zalloc_ro_mut`. That is an
+> internal **once-called** cold worker (1 call site), not the public API. The public RO-mutation
+> entry is `0xfffffff00ac482b8` (54 call sites, including both csflags setters). Verified in
+> [`../evidence/zalloc-ro-mut.md`](../evidence/zalloc-ro-mut.md).
 
 ```asm
-; --- make the RO-zone domain writable, just for this memcpy ---
-0x...31c98  mrs  x8, sprr_pperm_el1
-0x...31c9c  mov  x9, #0xb
-0x...31ca0  bfi  x8, x9, #0x8, #0x4        ; perm index field [8:11] = 0xb  (READ-WRITE)
-0x...31ca4  msr  sprr_pperm_el1, x8
-0x...31ca8  isb
-            ... (bl copy helpers) ...
+; --- validate FIRST, while the pages are still read-only ---
+0xfffffff00ad31c50  bl   0xfffffff00b41dce0       ; validate SRC range (const/RO/stack)
+0xfffffff00ad31c70  msr  daifset, #0x7            ; IRQs off
+0xfffffff00ad31c94  bl   0xfffffff00ad31d84       ; pmap_ro_zone_validate_element: dst zone-id + RO-range + bounds
+; --- only now make the RO-zone domain writable, just for this memcpy ---
+0xfffffff00ad31c98  mrs  x8, sprr_pperm_el1
+0xfffffff00ad31c9c  mov  x9, #0xb
+0xfffffff00ad31ca0  bfi  x8, x9, #0x8, #0x4        ; perm index field [8:11] = 0xb  (READ-WRITE)
+0xfffffff00ad31ca4  msr  sprr_pperm_el1, x8
+0xfffffff00ad31ca8  isb
+0xfffffff00ad31cb8  bl   0xfffffff00b3fd798         ; copy helpers
+0xfffffff00ad31cd0  bl   0xfffffff00b420c10
 ; --- restore read-only ---
-0x...31cd4  mrs  x8, sprr_pperm_el1
-0x...31cd8  mov  x9, #0xa
-0x...31cdc  bfi  x8, x9, #0x8, #0x4        ; perm index field [8:11] = 0xa  (READ-ONLY)
-0x...31ce0  msr  sprr_pperm_el1, x8
-0x...31ce4  isb
+0xfffffff00ad31cd4  mrs  x8, sprr_pperm_el1
+0xfffffff00ad31cd8  mov  x9, #0xa
+0xfffffff00ad31cdc  bfi  x8, x9, #0x8, #0x4        ; perm index field [8:11] = 0xa  (READ-ONLY)
+0xfffffff00ad31ce0  msr  sprr_pperm_el1, x8
+0xfffffff00ad31ce4  isb
 ```
+
+The **validate-before-flip** ordering is the write-side invariant: the dst must be a correctly typed,
+in-bounds RO element (zone-id halfword matches, inside the RO-zone range anchor `0xfffffff007de5e30`)
+and the src must lie in an allowed const/RO/stack range — both checked while the domain is still
+read-only. See [`../evidence/pmap-ro-zone-memcpy.md`](../evidence/pmap-ro-zone-memcpy.md) and
+[`../evidence/ro-zone-validators.md`](../evidence/ro-zone-validators.md).
 
 RO-zone pages carry an SPRR protection index whose entry is `0xa` (read-only) in the normal domain;
 only inside this window is it `0xb` (read-write). **A data-only arbitrary write to a `proc_ro`/
@@ -79,9 +97,12 @@ mrs  x8, sprr_pperm_el1 ; mov x9, #0xb ; bfi x8, x9, #8, #4 ; msr sprr_pperm_el1
 ```
 
 — now every RO-zone page is writable in the normal domain → overwrite credentials/csflags. A subtler
-path *without* crafting the `msr`: a PAC-defeating call-primitive that invokes `zalloc_ro_mut` with
-`dst` = a legitimate RO element you own + a forged `src` (it does the SPRR flip internally, but
-validates "same zone / from RO zone map" at entry, `bl 0xfffffff00b41dce0`).
+path *without* crafting the `msr`: a PAC-defeating call-primitive that invokes `zalloc_ro_mut`
+(`0xfffffff00ac482b8`) with `dst` = a legitimate RO element you own + a forged `src`. It does the
+SPRR flip internally, but the src validator (`bl 0xfffffff00b41dce0`) and the dst validator
+(`pmap_ro_zone_validate_element`, `bl 0xfffffff00ad31d84`) still constrain the source to an allowed
+const/RO/stack range and the destination to a correctly typed in-bounds RO element — so even this
+path cannot splice an arbitrary attacker buffer into a credential field.
 
 ## The full chain (27.0.1)
 
@@ -105,13 +126,18 @@ exclave work elsewhere in this repo matters: it is the floor the whole chain sta
 
 - Does a *practical* PAC-defeating call-primitive to `zalloc_ro_mut` exist? (the subtler Layer-3
   path) — unresolved, in [`../../../STATUS.md`](../../../STATUS.md).
-- Did 27.2 trap `msr sprr_pperm_el1` to GL or make the metadata submap read-only? That would move
-  these walls from data-only to code-exec. Not yet diffed.
+- Did 27.2/27.3 trap `msr sprr_pperm_el1` to GL or make the metadata submap read-only? **Diffed —
+  no.** Both ship the same 30 ungated `sprr_pperm_el1` sites, the same 3-instruction flip, and the
+  same plain-`strh` metadata writer; the walls remain exactly data-only. See
+  [`three-version-diff.md`](three-version-diff.md).
 
 ## Evidence
 
-`zone_require` `0xfffffff00b41101c`; `zone_require_ro` `0xfffffff00b411164`; `zalloc_ro_mut`
-`0xfffffff00b4112cc`; RO-write worker `0xfffffff00ad31c08` (flips @ `…31c98`/`…31cd4`); anchors
-`0xfffffff007de5de0` (range) / `…5e90` (meta base). `proc_task`: `task = proc + 0x768`, elem `0xe38`,
-zone-id `0x1a` (see [`proc-task-layout.md`](proc-task-layout.md)). Disasm excerpts in
+`zone_require` `0xfffffff00b41101c`; `zone_require_ro` `0xfffffff00b411164` (107 callers);
+**public `zalloc_ro_mut` `0xfffffff00ac482b8`** (54 callers; *not* `0xfffffff00b4112cc`, which is the
+1-call internal cold worker); RO-write worker `pmap_ro_zone_memcpy` `0xfffffff00ad31c08` (validators
+`bl 0xfffffff00b41dce0` src / `bl 0xfffffff00ad31d84` dst; flips @ `…31c98`/`…31cd4`); anchors
+`0xfffffff007de5de0` (regular-zone range) / `…5e90` (regular meta base) / `…5e30` (RO-zone range) /
+`…ebdd0` (RO-id table). `proc_task`: `task = proc + 0x768`, elem `0xe38`, zone-id `0x1a` (see
+[`proc-task-layout.md`](proc-task-layout.md)). Full per-claim disasm + reproduction commands in
 [`../evidence/`](../evidence/).
