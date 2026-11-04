@@ -50,18 +50,25 @@ See [`methodology/`](methodology/) for the full toolchain and the patch-diff pip
 ## What's inside
 
 ```
-27.0.1/
-  sptm/            Secure Page Table Monitor: architecture + GL1 attack surface + findings
-  txm/             Code-Signing Monitor (TXM): W^X / code-signing enforcement audit
-  exclaves/        Secure-Kernel (cL4) "exclave" world: bundle teardown, pmm, kernel, services
-  kernel-zone/     XNU zone-pointer validation, proc_task layout, the post-R/W trust boundary
-  iokit-fuzzing/   On-device black-box IOKit fuzzing (Phase 0–2), honest low-yield result
+STATUS.md          Where we got to · open questions · not-yet-reached — the honest map
+STRUCTURE.md       Folder conventions (how this scales as more iOS versions are added)
+methodology/       Tooling, the decompile+diff pipeline (+ scripts), and how we PROVE a verdict
+  patch-diff-scripts/   the normalized function-body diff tooling (runnable)
+  proof-methodology.md  how we prove "road blocked / hardened" vs "success / real bug"
+common/            Version-agnostic reference (glossary of SPTM/TXM/SPRR/PAN/CTRR/zone terms)
+27.0.1/            The primary build studied. Each area = README (summary) + reports/ + evidence/
+  sptm/            Secure Page Table Monitor: architecture + GL1 attack surface + 6 findings
+  txm/             Code-Signing Monitor: W^X / code-signing enforcement audit
+  exclaves/        Secure-Kernel (cL4) world: bundle teardown, pmm, kernel+PAN, EXSurface, ANE
+  kernel-zone/     zone-pointer validation, proc_task layout, the post-R/W trust boundary
+  iokit-fuzzing/   On-device IOKit fuzzing (code/ + experiments/), honest low-yield result
   media-parsers/   ImageIO / CMPhoto / MediaToolbox zero-click decode surface (static audit)
 27.2/              What changed in 27.2 (advisory mapping + per-area notes)
-diffs/             27.0.1 → 27.2 function-body patch-diffs (confirmed-patched bugs, with evidence)
-methodology/       Tooling, extraction, the decompile+diff pipeline, environment
-STATUS.md          Where we got to · open questions · not-yet-reached — the honest map
+diffs/27.0.1-to-27.2/  function-body patch-diffs (confirmed-patched bugs, before/after evidence)
 ```
+
+New to the repo? Read `STATUS.md` (the map), then `methodology/proof-methodology.md` (how claims are
+proven), then dive into any `27.0.1/<area>/`. Structure conventions for adding versions: `STRUCTURE.md`.
 
 ---
 

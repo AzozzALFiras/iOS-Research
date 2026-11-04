@@ -47,3 +47,9 @@ clients, giving the exact arg shapes of the real parse surface:
 
 These shapes are what a *targeted* content-fuzz would need; the blind runs showed why they are
 necessary. The on-device data confirms 27.0.1's IOKit sandbox surface is well-gated.
+
+## Code & experiments
+
+- [`code/`](code/) — the fuzzer C API contract (`FuzzCore.h`) + the safety-model write-up.
+- [`experiments/results.md`](experiments/results.md) — the measured run values (1430/108/3.45M/0),
+  the ~89% arg-gate breakdown, and the recovered static `IOExternalMethodDispatch` tables.

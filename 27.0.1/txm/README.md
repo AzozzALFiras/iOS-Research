@@ -62,3 +62,8 @@ SPTM/TXM/Code-Signing-Monitor panics — no observable monitor bug.
 TXM fully characterized, diffed, and its W^X/code-signing enforcement cold-audited → **no confirmed
 bug; the surface is sound and hardened**, matching the project-wide pattern. The SK/exclaves layer
 (`exclavecore_bundle`) is covered separately in [`../exclaves/`](../exclaves/).
+
+## Detailed report
+
+- [`reports/enforcement-audit.md`](reports/enforcement-audit.md) — the full W^X/code-signing chain,
+  the uncovered-tail bypass refutation, and the inconclusive digest-refactor diff.

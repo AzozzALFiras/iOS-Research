@@ -28,8 +28,8 @@ Binary: `Firmware/sptm.t8140.release.im4p` → arm64e Mach-O, stripped. 27.0.1 =
 - **Input discipline.** GL1 scalars arrive as `X_U.UNSAFE_VALUE` and are `sanitize_integer`'d +
   `__builtin_*_overflow`-checked before use. CTRR/AMCC hardware lockdown backs the static regions.
 
-See [`sptm_architecture.md`](sptm_architecture.md) for the full evidence-cited write-up (also an
-attack-surface enumeration suitable for discussion with Apple — it claims **no** bug).
+See [`reports/architecture.md`](reports/architecture.md) for the full evidence-cited write-up (also
+an attack-surface enumeration suitable for discussion with Apple — it claims **no** bug).
 
 ## 27.0.1 → 27.2 findings (all already patched — documented as a diff, not a 0-day)
 
@@ -52,7 +52,7 @@ IPSWs** (confirmed by extracting `DeviceTree.d94ap.im4p`). So on this device the
 repurposed page) is strongly supported but **inferred** — it needs dynamic confirmation, and
 there is public prior art (cinder27, iPhone19,7/v64sap), so it is likely not bounty-novel.
 
-See [`sptm_vuln_findings.md`](sptm_vuln_findings.md) and [`sptm_verification.md`](sptm_verification.md).
+Full detail, all six with before/after evidence: [`reports/findings.md`](reports/findings.md).
 
 ## Fresh hunt (not patch-diff)
 

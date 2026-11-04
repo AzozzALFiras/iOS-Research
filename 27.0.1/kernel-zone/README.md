@@ -94,4 +94,8 @@ So on 27.0.1 the real wall protecting credentials is **"prevent EL1 code executi
 the PAC + CTRR + SPTM triad — *not* SPRR by itself. This is exactly why the SPTM / exclave layer
 (documented elsewhere in this repo) matters: it is the floor the whole chain rests on.
 
-Addresses & details: [`zone_validation_trust_boundary.md`](zone_validation_trust_boundary.md).
+## Detailed reports
+
+- [`reports/trust-boundary.md`](reports/trust-boundary.md) — the full post-R/W chain with the SPRR-flip disasm (flagship).
+- [`reports/zone-id-validation.md`](reports/zone-id-validation.md) — how `zone_require`/`zone_id_require` works + the forgeable metadata.
+- [`reports/proc-task-layout.md`](reports/proc-task-layout.md) — confirmed `proc_task` offsets, cross-checked vs the Chollima demo.

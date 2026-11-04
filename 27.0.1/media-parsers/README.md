@@ -55,4 +55,10 @@ reach Apple's forked copy?) never triggered.
 
 Current iOS media parsing is hardened across ImageIO + CMPhoto + MediaToolbox: a bounds-checked
 atom stream + typed-`calloc` + field-width/dimension clamps. The exploitable bugs that *did* exist
-were all in the **27.2 patch-diff** set ([`../../diffs/`](../../diffs/)) and are already fixed.
+were all in the **27.2 patch-diff** set ([`../../diffs/27.0.1-to-27.2/`](../../diffs/27.0.1-to-27.2/))
+and are already fixed.
+
+## Detailed report
+
+- [`reports/heif-decode-map.md`](reports/heif-decode-map.md) — the full HEIF/HEIC decode routing map
+  (ImageIO → CMPhoto → MediaToolbox → CoreMedia) and the 5-layer ISOBMFF audit.

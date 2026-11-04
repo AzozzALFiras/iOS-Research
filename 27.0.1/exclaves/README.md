@@ -61,7 +61,7 @@ So "caps are named by address, not bounded index" is **by design and safe** — 
 hardware mitigation (PAN) standing in for a software check. Watch-list for future revisions: any
 EL0-reachable handler that clears PAN / uses `LDTR` for a cap read, or an object-type template that
 makes a cap-slot type EL0-accessible — neither exists in 27.0.1. Full write-up:
-[`exclave_kernel_capabilities.md`](exclave_kernel_capabilities.md).
+[`reports/cl4-kernel-pan.md`](reports/cl4-kernel-pan.md).
 
 ### EXSurface service (Swift)
 The surface-create / ImageLayout path (`sub_8868fd4` in the service cache) is pervasive Swift
@@ -85,3 +85,10 @@ Four surfaces deep-audited — pmm (C), cL4 kernel (TCB), EXSurface (Swift), ANE
 comprehensively hardened, no exploitable bug.** The exclave world matches the project-wide pattern,
 now extended to a previously-untouched surface, with one genuinely instructive architectural result
 (VA-addressed capabilities + PAN).
+
+## Detailed reports
+
+- [`reports/pmm.md`](reports/pmm.md) — physical-memory manager (C), the direct XNU boundary + the 91%-unchanged diff.
+- [`reports/cl4-kernel-pan.md`](reports/cl4-kernel-pan.md) — the VA-capability + PAN proof (flagship "road-blocked").
+- [`reports/exsurface.md`](reports/exsurface.md) — EXSurface layout math (Swift checked-arithmetic).
+- [`reports/ane-zinrt.md`](reports/ane-zinrt.md) — the C++ Mach-O-like ANE deserializer.

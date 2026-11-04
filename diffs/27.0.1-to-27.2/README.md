@@ -3,7 +3,8 @@
 Function-body diffs that locate silently-patched bugs, each reverse-engineered to before/after and
 then variant-hunted. **These are all already fixed by Apple in 27.2** — they are documented the way
 public security writeups document patched bugs (to learn the bug class and the fix), not as live
-exploits. See [`../methodology/`](../methodology/) for the pipeline.
+exploits. See [the methodology](../../methodology/) for the pipeline, and
+[`media.md`](media.md) for the **instruction-level before/after** of each bug below.
 
 ## Confirmed-patched memory-safety bugs
 
@@ -58,4 +59,4 @@ The methodology works end-to-end on real current iOS and precisely localizes eac
 one was already patched, and every variant hunt was negative — i.e. the media/kernel surface here is
 **saturated and well-combed**. Patch-diff → variant-hunt on this surface is high-skill portfolio
 work, **low-yield for a novel (reportable) 0-day**. The honest conclusion drove the later pivot to
-the less-combed SPTM / TXM / exclave surfaces (also hardened — see [`../STATUS.md`](../STATUS.md)).
+the less-combed SPTM / TXM / exclave surfaces (also hardened — see [STATUS.md](../../STATUS.md)).
