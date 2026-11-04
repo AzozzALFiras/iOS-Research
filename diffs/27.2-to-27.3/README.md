@@ -66,25 +66,32 @@ Per-kext content-anchored body-diff (server `kernel_272_vs_273_live_findings.md`
 | IOSurface | 403.1 | no change (GOT/data-const reloc); 27.2 `+0xf1` UAF fix intact |
 | AppleAVD | 995 | `__text` byte-identical |
 | IOHIDFamily | 2.0.0 | feature/robustness; prior OOB accessors untouched (still fixed) |
-| **AGXG17P** | 363.3 | **security fix @idx2404 — OOB read, LIVE in 27.2 (and 27.0.1)** |
+| **AGXG17P** | 363.3 | **OOB-read hardening added in 27.3, LIVE (unchecked) in 27.2 + 27.0.1 — reachability UNPROVEN (candidate)** |
 | IOGPUFamily / M2ScalerCSC / H16ANE | — | feature/telemetry + high-churn recompile; no isolable fix |
 
-**AGXG17P idx2404 (honest).** A GPU "vChannel / GTP" C++ virtual method reads a channel-index byte
-from an attacker-influenced descriptor (`ldrb w9,[x1,#3]`, range 0–255), gates it **only** by a
-64-bit bitmap tested with `1 << (w9 & 63)` (mod-64 aliasing), then does `add x9,base,w9` with the
-**full** unmasked `w9` and `ldrb` → OOB read up to ~+191 bytes; the fetched byte then feeds a
-secondary index. 27.3 adds the two checks the sibling `bounded_ptr` paths already had: `cmp x9,#0x3f;
-b.hi` (clamp primary index to 0–63) and `ldrb w11,[x8,#8]; cmp w9,w11; b.hs` (bound the secondary).
-Verified byte-identical vulnerable in **27.0.1 (`@0xfffffff0084f4cfc`)** and **27.2
-(`@0xfffffff00850602c`)**, fixed only in 27.3 beta (`@0xfffffff00853221c`).
+**AGXG17P OOB read (honest, independently re-verified).** A small AGX C++ helper method reads a
+byte **index** from a caller-supplied descriptor (`ldrb w8,[x1]`, range 0–255), uses it to index an
+array of 8-byte pointers (`table->array @+0x40`) via `ldr x8,[x9,x8,lsl#3]` **with no bound**, and
+then **dereferences** the loaded pointer (`ldrb w8,[x8,#0x14]`). 27.3 adds the missing bound:
+`ldr w10,[x9,#0x48] (count); cmp w10,w8; b.ls <bail>` (and tightens `lsl#3`→`uxtw#3`). The unchecked
+form is **byte-identical-shape in 27.0.1 (`@0xfffffff0084f2710`) and 27.2 (`@0xfffffff008503b4c`)**;
+first guarded in 27.3 beta (`@0xfffffff00852fc50`). Full before/after disasm + reproduction commands:
+[`evidence/agxg17p-channel-index.md`](evidence/agxg17p-channel-index.md) (I confirmed every
+instruction above against the three kernelcaches).
 
-- **Status:** the fix and the live-in-27.2/27.0.1 status are **solid**. Bounty value hinges on
-  **reachability**, which is **unresolved**: this is a GPU channel/profiling path likely gated behind
-  GPU-profiling entitlements (Instruments/Metal debugger), and dispatch is via a PAC-signed vtable
-  (`blraa`, no plaintext caller) so the `IOUserClient` + `externalMethod` selector was not resolved
-  statically. Classified **confirmed OOB read, reachability pending** — an honest open lead, not a
-  confirmed-reachable bug. It is outside the kext set this project originally tracked (IOSurface /
-  IOHID / AVD), which is why the "no new fix to tracked surfaces" statement still holds.
+- **Status — CANDIDATE, not a confirmed-reachable bug.** PROVEN: the fix exists, the bug class is an
+  OOB read → wild-pointer deref, and it is live (unchecked) on shipping 27.2 and on 27.0.1. UNPROVEN
+  and **decisive**: reachability. The function is a vtable slot with **zero static cross-references**
+  (vptr installed at runtime by a constructor in a companion kext), symbols are stripped, and no
+  decompiler/xref backend was available — so attacker-control of the index via an
+  `IOConnectCallMethod` field on an ungated user client **could not be established**. It is equally
+  consistent with defense-in-depth hardening of a kernel-constrained index. Honest open lead, outside
+  the originally-tracked kext set (IOSurface / IOHID / AVD), so the "no new fix to tracked surfaces"
+  statement still holds.
+- **Caveat on an earlier draft:** the AGX kext is a full recompile (~83 changed functions, +5
+  inserted), which makes positional body-diff alignment noisy; an earlier per-index address pairing
+  (`@0x850602c`↔`@0x853221c`, a *different*, flags-dispatch function) was a mis-alignment and is
+  superseded by the re-verified pair above.
 
 ## Zone / CTRR / RO-zone defensive map — all SAME
 
