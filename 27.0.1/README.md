@@ -14,6 +14,7 @@ demo targets, so its mitigations are worth understanding in detail.
 | [`kernel-zone/`](kernel-zone/) | `zone_id_require` + `proc_task` layout + the post-R/W trust boundary (RO zones, SPRR, the full chain) |
 | [`iokit-fuzzing/`](iokit-fuzzing/) | On-device sandbox IOKit fuzzing, 0 crashes, static dispatch tables |
 | [`media-parsers/`](media-parsers/) | Zero-click decode surface map (ImageIO/CMPhoto/MediaToolbox), hardened |
+| [`krw-dead-paths/`](krw-dead-paths/) | **27 tested-and-eliminated paths to kernel R/W** — the exhaustive map of what doesn't work and why (IPC, ANE, AVE, GPU, Handle Race, SPTM, IOSurface) |
 
 Cross-version patch-diffs (the confirmed-patched media/kernel bugs) are in
 [`../diffs/`](../diffs/); the honest project map is in [`../STATUS.md`](../STATUS.md).
@@ -22,5 +23,7 @@ Cross-version patch-diffs (the confirmed-patched media/kernel bugs) are in
 
 Every surface examined on 27.0.1 is **hardened** — the exploitable bugs that existed were all fixed
 in 27.2, and the monitor/exclave/zone surfaces had no confirmed exploitable bug. The durable output
-is the reconstructed architecture and, especially, the **kernel credential trust chain**
-(constrained primitive → data-only R/W → RO-zone/SPRR wall → needs code-exec → PAC+CTRR+SPTM).
+is the reconstructed architecture, the **kernel credential trust chain**
+(constrained primitive → data-only R/W → RO-zone/SPRR wall → needs code-exec → PAC+CTRR+SPTM),
+and the **exhaustive kR/W dead-path map** (27 distinct approaches tested on device, all confirmed
+dead — type isolation, UAT, VT gatekeeper, sandbox barriers).
