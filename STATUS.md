@@ -115,9 +115,74 @@ Independent re-audit of every 27.0.1 surface. **All verdicts: hardened / benign 
   `0xfffffff00b4112cc` cited in `27.0.1/kernel-zone/reports/trust-boundary.md` — that report is owned
   by another track; the authoritative address for the RO-mutation entry is the value here).
 
+### Kernel R/W primitive — 27 tested-and-eliminated paths (2026-11-09)
+On-device testing of every known path to kernel read/write on 27.0.1 (iPhone 17,2, A18 Pro, build
+24A446). **27 distinct approaches tested, all confirmed dead.** This is the exhaustive negative-result
+map — documenting *why each path fails* so the next researcher starts from our frontier, not from
+scratch.
+
+**Categories (27 total):**
+
+| Category | Count | Key kill mechanism |
+|---|---|---|
+| KASLR info leak | 7 | All leak vectors zeroed; KASLR independently defeated via timing oracle (z=7.67) |
+| GPU / Metal | 4 | UAT (Unified Address Translator) completely isolates GPU VA from kernel PA |
+| IOSurface overflow | 2 | Kernel validates/clamps compressionType and sliceCount |
+| AVE / video encoder | 4 | DART/IOMMU protects DMA; binary-confirmed bounds checks in AppleAVE2 |
+| AVC / video codec | 2 | VideoToolbox userspace validates bounds *before* values reach the kernel |
+| IPC / Mach port | 2 | Request table grows ONCE (64→128); freelist has 48+ entries after; no race window |
+| ANE / Neural Engine | 1 | Mutable weights buffer lives in `aned` daemon address space, not the app's |
+| SPTM | 3 | Require EL2/EL3 or existing kernel compromise |
+| IOMFB | 1 | No IOMobileFrameBuffer kext on A18 Pro; fix is in DCP firmware |
+| Handle Race strategies | 4 | Type isolation (`kalloc_type` vs `kalloc_data`) blocks all cross-zone spray |
+| External (AGX-RW-PoC) | 1 | Targets iOS 18.6.2; depends on ClearSword KRW we don't have |
+
+**Device-confirmed dead (key CVEs):**
+
+- **CVE-2026-112507** (IPC port request table OOB) — the bounds-check bug is real (3 independent
+  sites with discarded bounds results), but the table grows only once. After the initial 64→128
+  expansion, the freelist holds 48+ free entries and `ipc_port_request_grow` is never called again.
+  No race window exists. Confirmed on device twice (12,288 rounds and 7 rounds, all freelist-path).
+  Independently confirmed by SPBY `ipcfuzz` (10,000 ops × 4 threads, replace-storm + destroy-race =
+  0 panics, "bounded, not a write PoC").
+
+- **CVE-2026-84494** (ANE symbolIndex OOB) — the kernel bug is real (`processInputBufferMappingInfo`
+  reads symbolIndex with no bounds check, fixed in 27.2), but **architecturally unreachable from the
+  app sandbox**. The mutable weights buffer with ANE procedure info is created by the `aned` XPC
+  daemon and shared with the kext via `IOConnectCallStructMethod` selector 8 (MapMutableWeights).
+  This mapping lives in `aned`'s address space, not the app's. CoreML's `MLUpdateTask` trains on
+  CPU (~14ms, zero IOKit calls). No ANE cache files exist in the app sandbox. Confirmed on device
+  with two diagnostic IPAs (v1: 11-phase ANEDeepDiag, v2: ANEUpdateDiag with MLUpdateTask).
+
+- **CVE-2026-112689** (MMCO DPB OOB) — binary-confirmed two bounds checks in AppleAVE2 block all
+  paths. 8 IPA versions tested, 14 `long_term_frame_idx` values, zero corruption.
+
+- **CVE-2026-112705** (AVE temporal layers) — VideoToolbox userspace clamps
+  `NumberOfTemporalLayers` to 1 before sending to kernel; kernel has a hard bounds check at
+  `0xfffffff00872b100`.
+
+**The structural lesson:** every heap-based kR/W approach on 27.0.1 is blocked by type isolation
+(`kalloc_type<T>` per-type zones). Successful modern jailbreaks (kfd/PUAF, ClearSword/DarkSword)
+work at the physical-page or VM/VFS layer — *above* the zone allocator — to sidestep this entirely.
+
+See [`27.0.1/krw-dead-paths/`](27.0.1/krw-dead-paths/).
+
 ---
 
 ## ❓ Open questions (investigated, not fully closed)
+
+0\*. **THE open blocker — kernel R/W primitive.** With all 27 tested paths dead, the kR/W step is
+   the sole unsolved stage of the jailbreak chain. KASLR is defeated, Handle Race provides a
+   dangling IOSurface reference, but no path from that reference to stable kernel read/write has
+   survived testing. The remaining unexplored CVEs from the 27.2 advisory are:
+   - **CVE-2026-112576** (CoW bypass, Pedro Pinho) — same class as DarkSword (CVE-2025-43510); works
+     at the VM/UPL layer above type isolation. Highest priority. Needs kernelcache 27.2 diff.
+   - **CVE-2026-84495** (kernel UAF, Wang Yu) — "execute arbitrary code with kernel privileges."
+     Component and zone unknown; needs kernelcache diff.
+   - **CVE-2026-112514** / **CVE-2026-112474** (kernel UAF write, Marc Newlin / STAR Labs) — "write
+     kernel memory." Subsystem unknown; needs diff.
+   These are the remaining leads, not confirmed viable — they need the same reverse-engineering
+   treatment that eliminated the 27 paths above.
 
 0. **THE open data-only lead — `fg_cred` / `so_cred` reader-side.** After the 8-agent fan-out, the
    single residual not-closed lead is the **reader-side** handling of file-/socket credentials

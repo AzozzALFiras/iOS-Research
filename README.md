@@ -72,6 +72,7 @@ common/            Version-agnostic reference (glossary of SPTM/TXM/SPRR/PAN/CTR
   kernel-zone/     zone-pointer validation, proc_task layout, the post-R/W trust boundary
   iokit-fuzzing/   On-device IOKit fuzzing (code/ + experiments/), honest low-yield result
   media-parsers/   ImageIO / CMPhoto / MediaToolbox zero-click decode surface (static audit)
+  krw-dead-paths/  27 tested-and-eliminated paths to kernel R/W — the map of what doesn't work
 27.2/              Landing page: what changed in 27.2 (advisory mapping; findings live in diffs/)
 27.3/              Landing page: 27.3 beta = feature + recompile, no new tracked-surface fix
 diffs/             Cross-version analysis — START HERE for the 3-version story
@@ -109,6 +110,16 @@ A one-paragraph honest summary (full detail in [`STATUS.md`](STATUS.md)):
   zones holding credentials — holds against **data-only** R/W. That wall is itself only a
   data-only boundary: it falls to **EL1 code-execution** (the `sprr_pperm_el1` remap is
   EL1-writable), which is in turn what PAC + CTRR + SPTM exist to prevent.
+- **Kernel R/W primitive (27.0.1):** 27 distinct paths tested on device — IPC request table race
+  (CVE-2026-112507: table grows once, freelist prevents race), ANE OOB (CVE-2026-84494: buffer in
+  `aned` daemon, sandbox barrier), AVE/AVC encoder (VT userspace validates bounds before kernel),
+  GPU/Metal (UAT isolates GPU from kernel memory), Handle Race strategies (type isolation blocks
+  cross-zone spray). **All dead.** KASLR was independently defeated via a timing oracle, but the
+  kR/W step remains the sole unsolved stage of the chain. The structural lesson: iOS 27's type
+  isolation (`kalloc_type` per-type zones) blocks every heap-based kR/W approach; successful modern
+  jailbreaks (kfd, ClearSword) work at the physical-page or VM/VFS layer. The value here is the
+  exhaustive map of what doesn't work and why, so the next researcher starts from our frontier,
+  not from scratch. See [`27.0.1/krw-dead-paths/`](27.0.1/krw-dead-paths/).
 
 **Net:** current iOS (27.0.1) is hardened across every surface examined here. The value of this
 repo is the *map* — the mechanisms, the trust boundaries, and the methodology — not a break.
