@@ -1,0 +1,472 @@
+{
+  "metadata": {
+    "generated": "2026-11-09",
+    "target": "iOS 27.0.1 iPhone17,2 (A18 Pro) Build 24A446",
+    "total_dead_paths": 28,
+    "total_dead_cves": 10,
+    "total_dead_techniques": 8,
+    "known_patched_27_2_bugs": 14,
+    "purpose": "Blacklist for 27.2.1 diff analysis — skip ALL listed patterns, CVEs, subsystems, and techniques"
+  },
+
+  "dead_cves": [
+    "CVE-2026-112689",
+    "CVE-2026-112705",
+    "CVE-2026-112507",
+    "CVE-2026-84494",
+    "CVE-2026-112459",
+    "CVE-2026-43655",
+    "CVE-2026-112576",
+    "CVE-2026-28968",
+    "CVE-2026-65410",
+    "CVE-2026-112466"
+  ],
+
+  "dead_subsystems": {
+    "KASLR_info_leak": {
+      "paths_tested": 7,
+      "ids": ["A1","A2","A3","A4","A5","A6","A7"],
+      "why_dead": "Apple zeroes kaddr returns, property dictionaries contain no kernel pointers, IOSurfaceGetBaseAddress returns userspace pixel buffer",
+      "specific_functions": [
+        "mach_port_kobject",
+        "task_info(TASK_DYLD_INFO)",
+        "IORegistryEntryCreateCFProperties",
+        "IOSurface::CopyAllValues",
+        "IOSurfaceGetBaseAddress",
+        "decmpfs"
+      ],
+      "kill_mechanism": "Systematic kernel pointer scrubbing in all userspace-facing APIs",
+      "note": "KASLR solved via timing oracle v4.1 (z=7.67) — info leak paths are irrelevant"
+    },
+
+    "GPU_Metal": {
+      "paths_tested": 4,
+      "ids": ["B1","B2","B3","B4"],
+      "why_dead": "DART isolates GPU VA from kernel PA. UAT completely blocks GPU access to kernel memory. DART page tables are in kernel memory, not GPU VA space.",
+      "specific_functions": [
+        "F1OOB_GPU_cross_object_OOB",
+        "GPU_UAT_kernel_RW",
+        "GPU_PTE_corruption_via_F1OOB",
+        "Metal_buffer_extension_OOB"
+      ],
+      "kill_mechanism": "DART hardware isolation + UAT address space separation",
+      "note": "F1OOB cross-object OOB works 100% in userland but cannot escape to kernel"
+    },
+
+    "IOSurface_overflow": {
+      "paths_tested": 2,
+      "ids": ["C1","C2"],
+      "why_dead": "Kernel rejects compressionType=3 variants (e00002c2), clamps sliceCount=1 internally",
+      "specific_functions": [
+        "IOSurface_compressionType_3",
+        "IOSurface_sliceCount_tile_OOB"
+      ],
+      "kill_mechanism": "Kernel-side input validation and internal clamping"
+    },
+
+    "AVE_video_encoder": {
+      "paths_tested": 4,
+      "ids": ["D1","D2","D3","D4"],
+      "why_dead": "DART/IOMMU protects DMA, type isolation separates zones, AppleAVE2 has binary-confirmed bounds checks, VT userspace clamps temporal layers",
+      "specific_functions": [
+        "AVE_DMA_corruption",
+        "AVE_OOB_trigger_v2",
+        "MMCO_DPB_OOB_write(CVE-2026-112689)",
+        "AVE_temporal_kRW(CVE-2026-112705)",
+        "AVE_HEVC_CheckInfo"
+      ],
+      "kill_mechanism": "DART isolation + DPB bounds checks at 0x86d0338 and 0x86d46f0 + VT user-space NTL clamp + kernel cmp w8,#9;b.hs at 0x872b100",
+      "binary_addresses": {
+        "DPB_init_check": "0xfffffff0086d0338",
+        "MMCO6_handler_check": "0xfffffff0086d46f0",
+        "NTL_kernel_check": "0xfffffff00872b100"
+      }
+    },
+
+    "AVC_video_codec": {
+      "paths_tested": 2,
+      "ids": ["E1","E2"],
+      "why_dead": "VT userspace validates log2_max range: log2_fn>16 → -12911, poc_lsb>16 → -12710. AppleAVE2 kernel checks are defense-in-depth only.",
+      "specific_functions": [
+        "AVC_SPS_log2_max_frame_num_OOB",
+        "CMVideoFormatDescriptionCreateFromH264ParameterSets"
+      ],
+      "kill_mechanism": "VideoToolbox userspace validates SPS range before kernel sees values",
+      "binary_addresses": {
+        "SPS_path1": "0xfffffff00876bb80",
+        "SPS_path2": "0xfffffff008805060"
+      }
+    },
+
+    "IPC_Mach_port": {
+      "paths_tested": 2,
+      "ids": ["F1","F2"],
+      "why_dead": "Table grows ONCE (64→128). After single grow, freelist has 48+ free entries. ipc_port_request_grow() NEVER called again. No race window.",
+      "specific_functions": [
+        "ipc_port_request_grow",
+        "ipc_port_request_alloc",
+        "ipc_port_request_table_OOB_3_sites"
+      ],
+      "kill_mechanism": "Grow-once design: freelist prevents subsequent growth, eliminating race window",
+      "device_tests": {
+        "v1": "12288 rounds, all f=0",
+        "v2": "7 rounds, all f=0",
+        "ipcfuzz": "10000 ops × 4 threads, 0 panic, bounded not a write PoC"
+      },
+      "oob_sites": {
+        "site1_read": "0xab86c64",
+        "site2_write": "0xab86cd0",
+        "site3_rw": "0xab86b2c"
+      }
+    },
+
+    "ANE_neural_engine": {
+      "paths_tested": 1,
+      "ids": ["G1"],
+      "why_dead": "Mutable weights buffer lives in aned daemon address space. App → CoreML → XPC → aned → IOKit. Direct IOKit returns kIOReturnNotPermitted.",
+      "specific_functions": [
+        "processInputBufferMappingInfo(AppleH16ANEInterface)",
+        "symbolIndex_OOB_write"
+      ],
+      "kill_mechanism": "Architectural sandbox barrier: aned daemon mediates all ANE kext access",
+      "device_tests": {
+        "v1_ANEDeepDiag": "0 IOKit calls, 32MB buffer all zeros",
+        "v2_ANEUpdateDiag": "Training OK, 0 mutable weight headers, CPU-only",
+        "direct_IOKit": "kIOReturnNotPermitted"
+      }
+    },
+
+    "SPTM": {
+      "paths_tested": 3,
+      "ids": ["H1","H2","H3"],
+      "why_dead": "All require EL2/EL3 access or existing kernel compromise. Not reachable from userspace/sandbox.",
+      "specific_functions": [
+        "SPTM_CAS_race",
+        "SAPT_bypass",
+        "GMMU_TLBI_skip"
+      ],
+      "kill_mechanism": "Requires privilege level we don't have (EL2/EL3 or existing kR/W)"
+    },
+
+    "IOMFB_display": {
+      "paths_tested": 1,
+      "ids": ["I1"],
+      "why_dead": "No IOMobileFrameBuffer kext in A18 Pro kernelcache. Fix is in DCP firmware, not kernel.",
+      "specific_functions": [
+        "IOMobileFrameBuffer_race(CVE-2026-112459)"
+      ],
+      "kill_mechanism": "Component does not exist in kernelcache — DCP firmware side only"
+    },
+
+    "HandleRace_kRW_strategies": {
+      "paths_tested": 4,
+      "ids": ["J1","J2","J3","J4"],
+      "why_dead": "Type isolation separates zones. No kernel pointers in IOSurface properties. IOKit selectors leak no kptrs. Notification UAF race timing too tight (0/200).",
+      "specific_functions": [
+        "OSData_fake_layout_spray",
+        "IOSurface_property_kptr_scan",
+        "IOKit_selector_scan_sel0-35",
+        "registerEventNotifier_sel17_UAF"
+      ],
+      "kill_mechanism": "kalloc_type<IOSurface>.1024 isolated from kalloc_data — type isolation"
+    },
+
+    "external_references": {
+      "paths_tested": 1,
+      "ids": ["K1"],
+      "why_dead": "Targets iOS 18.6.2, requires ClearSword KRW we don't have",
+      "specific_functions": [
+        "AGX-RW-iOS-PoC(0xjohnnydev)"
+      ],
+      "kill_mechanism": "Wrong iOS version + depends on unavailable primitive"
+    },
+
+    "ScalerCSC": {
+      "paths_tested": 1,
+      "ids": ["K1_scaler"],
+      "why_dead": "ALL 12 selectors have scalarIn=0, NO struct input. Pure status/config reader with zero parsing surface. 2.99M fuzzes, 0 crashes.",
+      "specific_functions": [
+        "AppleM2ScalerCSCDriver_dispatch_table"
+      ],
+      "kill_mechanism": "No struct input = no memory corruption surface. Driver is pure getter class.",
+      "device_tests": {
+        "v5_statistical_AB": "+4.6μs mean diff (below 10μs threshold)",
+        "selector_fuzz": "2.99M calls on sel11, 100% KERN_SUCCESS, fixed 664-byte output"
+      }
+    }
+  },
+
+  "dead_techniques": [
+    {
+      "name": "Heap spray cross-zone reclaim",
+      "why_dead": "Type Isolation in 27.0.1: kalloc_type<IOSurface>.1024 is separate from kalloc_data (OSData/pipe). No spray from one zone fills another.",
+      "applies_to": ["IOSurface", "OSData", "pipe_buffer", "mach_msg"],
+      "lesson": "All successful iOS 16+ jailbreaks bypass type isolation by working at physical/VM/VFS level"
+    },
+    {
+      "name": "Fake object spray (OSData/pipe substitution)",
+      "why_dead": "Type isolation + zone sequestering. Cannot place controlled data in typed zone.",
+      "applies_to": ["IOSurface", "any_typed_zone"]
+    },
+    {
+      "name": "GPU → kernel memory access",
+      "why_dead": "DART hardware + UAT isolation. GPU VA space completely separated from kernel VA.",
+      "applies_to": ["AGX", "Metal", "GPU_PTE"]
+    },
+    {
+      "name": "AVE/AVC bitstream field overflow",
+      "why_dead": "VideoToolbox userspace validates ALL bitstream parameters before kernel. Need separate VT vuln to bypass.",
+      "applies_to": ["AppleAVE2", "H264", "HEVC", "AV1", "VideoToolbox"]
+    },
+    {
+      "name": "Direct IOKit to hardware accelerators",
+      "why_dead": "XPC gating: aned, DCP, and other accelerator daemons mediate access. kIOReturnNotPermitted from sandbox.",
+      "applies_to": ["ANE", "DCP", "ISP"]
+    },
+    {
+      "name": "IPC request table race",
+      "why_dead": "Grow-once design with freelist. No second grow = no race window.",
+      "applies_to": ["Mach_IPC", "port_request_table"]
+    },
+    {
+      "name": "IOSurface property/selector kernel pointer leak",
+      "why_dead": "Apple scrubs ALL kernel pointers from user-facing property dictionaries and IOKit method returns.",
+      "applies_to": ["IOSurface", "IOKit", "IORegistry"]
+    },
+    {
+      "name": "CoW bypass via file truncation",
+      "why_dead": "Vulnerable vm_object state (external + no pager) unreachable from userspace. File-backed = vnode pager → SIGBUS. IOSurface = device_pager → handled.",
+      "applies_to": ["vm_fault", "vm_map", "UPL"],
+      "note": "Exploitable only via kernel-internal object state manipulation — needs another primitive"
+    }
+  ],
+
+  "known_patched_bugs_27_2": [
+    {
+      "component": "ImageIO (TIFFReadPlugin::decodeTileChunky)",
+      "cve_approx": "~CVE-2026-112488",
+      "bug_class": "integer overflow → heap OOB write",
+      "already_analyzed": true,
+      "variant_hunt_result": "negative"
+    },
+    {
+      "component": "Model I/O (adobe::usd::Image::allocate)",
+      "cve_approx": "~CVE-2026-112565/112449",
+      "bug_class": "integer overflow → heap OOB write",
+      "already_analyzed": true,
+      "variant_hunt_result": "negative"
+    },
+    {
+      "component": "Model I/O (SdfZipFile::Iterator::operator++)",
+      "cve_approx": "~CVE-2026-112413",
+      "bug_class": "missing signature check → OOB read",
+      "already_analyzed": true,
+      "variant_hunt_result": "negative"
+    },
+    {
+      "component": "Model I/O (HdMeshUtil::_CountTriangles)",
+      "cve_approx": "~CVE-2026-112461/112486",
+      "bug_class": "32-bit accumulator overflow → OOB index write",
+      "already_analyzed": true,
+      "variant_hunt_result": "negative"
+    },
+    {
+      "component": "Model I/O (Ptex Block::SetSize)",
+      "cve_approx": "unnamed",
+      "bug_class": "16-bit field overflow → heap overflow",
+      "already_analyzed": true,
+      "variant_hunt_result": "negative"
+    },
+    {
+      "component": "CoreMedia (_hevcbridgeParseVDRRPUDataPayload)",
+      "cve_approx": "~CVE-2026-112688",
+      "bug_class": "unbounded Exp-Golomb ue(v) → selector OOB",
+      "already_analyzed": true,
+      "variant_hunt_result": "negative"
+    },
+    {
+      "component": "CoreGraphics (CGPDFShadingType5Init)",
+      "cve_approx": "~CVE-2026-112611/112610",
+      "bug_class": "numComponents > 4 → fixed inline array OOB write",
+      "already_analyzed": true,
+      "variant_hunt_result": "negative"
+    },
+    {
+      "component": "IOSurface (client torn-down flag at +0xf1)",
+      "cve_approx": "unnamed (notification UAF)",
+      "bug_class": "UAF: register after teardown → dangling pointer",
+      "already_analyzed": true,
+      "variant_hunt_result": "N/A — bug confirmed real, exploitation attempted (0/200 races)"
+    },
+    {
+      "component": "IOHIDFamily (accessor array OOB)",
+      "cve_approx": "unnamed",
+      "bug_class": "unchecked index → OOB r/w",
+      "already_analyzed": true,
+      "variant_hunt_result": "not attempted"
+    },
+    {
+      "component": "AppleAVD (write-before-validate reorder)",
+      "cve_approx": "unnamed",
+      "bug_class": "possible reorder bug (low confidence)",
+      "already_analyzed": true,
+      "variant_hunt_result": "unconfirmed"
+    },
+    {
+      "component": "AppleAVE2 (MMCO DPB bounds)",
+      "cve_approx": "CVE-2026-112689",
+      "bug_class": "OOB write via long_term_frame_idx",
+      "already_analyzed": true,
+      "variant_hunt_result": "dead — 2 bounds checks in 27.0.1"
+    },
+    {
+      "component": "AppleAVE2 (NTL temporal layers)",
+      "cve_approx": "CVE-2026-112705",
+      "bug_class": "OOB write via NumberOfTemporalLayers",
+      "already_analyzed": true,
+      "variant_hunt_result": "dead — VT clamp + kernel check"
+    },
+    {
+      "component": "AppleAVE2 (AVC SPS log2_max)",
+      "cve_approx": "unnamed",
+      "bug_class": "OOB via unbounded log2_max_frame_num",
+      "already_analyzed": true,
+      "variant_hunt_result": "dead — VT userspace validates range"
+    },
+    {
+      "component": "AppleAVE2 (VPS layer inflation)",
+      "cve_approx": "CVE-2026-112466",
+      "bug_class": "OOB read via vps_max_layers_minus1",
+      "already_analyzed": true,
+      "variant_hunt_result": "dead — VT clamps"
+    }
+  ],
+
+  "viable_infrastructure": {
+    "kaslr": {
+      "method": "timing oracle v4.1",
+      "reliability": "z=7.67, first attempt",
+      "status": "WORKING"
+    },
+    "handle_race": {
+      "cve": "CVE-2026-112477",
+      "race_rate": "21%",
+      "race_wins": "~217K+",
+      "spray_reclaim": "confirmed",
+      "status": "WORKING (Phase 1-3)"
+    },
+    "f1oob": {
+      "method": "GPU cross-object OOB",
+      "reliability": "100%",
+      "delta": "0x18000",
+      "note": "Works in userland only — cannot reach kernel memory",
+      "status": "WORKING (limited scope)"
+    },
+    "bridge_spray": {
+      "method": "GPU↔CPU↔IOSurface R/W",
+      "reliability": "16/16",
+      "status": "WORKING"
+    },
+    "agx_physical_addr": {
+      "method": "AGX sel8",
+      "address": "0x10afec180",
+      "status": "WORKING"
+    }
+  },
+
+  "unverified_leads": [
+    {
+      "name": "AVD-SHARED-BUFFER-LIFECYCLE",
+      "source": "workflow-nov9 IOKit audit agent",
+      "status": "UNVERIFIED",
+      "why_promising": "PAGE-LEVEL allocations via IOMemoryDescriptor BYPASS Type Isolation. Destroy-during-decode race → physical page UAF. Reachable via VideoToolbox from sandbox.",
+      "kext_address": "0xfffffff007181580",
+      "selectors": "#29 createSharedBuffer, #30 destroySharedBuffer",
+      "next_step": "Decompile methods #29-30, check synchronization primitives, look for missing lock around destroy"
+    },
+    {
+      "name": "JPEG-STRUCT-INPUT-2024",
+      "source": "workflow-nov9 IOKit audit agent",
+      "status": "UNVERIFIED",
+      "why_promising": "AppleJPEGDriverIOStruct2024 NEW in iOS 27. width*height overflow → DART maps fewer pages → codec DMA OOB. Reachable via ImageIO JPEG decode.",
+      "kext_address": "0xfffffff00753b030",
+      "next_step": "Reverse IOStruct2024 layout, fuzz dimensions for integer overflow"
+    },
+    {
+      "name": "SEPKEYSTORE-DER-OOB",
+      "source": "workflow-nov9 patchdiff agent",
+      "status": "UNVERIFIED",
+      "why_promising": "27.2 adds 'device state der too big to cache' string ABSENT in 27.0.1. Heap buffer overflow from oversized DER blob.",
+      "risk": "Likely entitlement-gated from sandbox",
+      "next_step": "Test IOServiceOpen from app sandbox to see if reachable"
+    }
+  ],
+
+  "unexplored_cves_from_27_2_advisory": [
+    {
+      "cve": "CVE-2026-84495",
+      "type": "Kernel UAF",
+      "impact": "execute arbitrary code with kernel privileges",
+      "researcher": "Wang Yu",
+      "subsystem": "UNKNOWN",
+      "status": "NOT_INVESTIGATED — subsystem unknown, need kernelcache diff"
+    },
+    {
+      "cve": "CVE-2026-112514",
+      "type": "Kernel UAF write",
+      "researcher": "Marc Newlin",
+      "subsystem": "UNKNOWN",
+      "status": "NOT_INVESTIGATED"
+    },
+    {
+      "cve": "CVE-2026-112474",
+      "type": "Kernel UAF write",
+      "researcher": "STAR Labs",
+      "subsystem": "UNKNOWN",
+      "status": "NOT_INVESTIGATED"
+    },
+    {
+      "cve": "CVE-2026-112470",
+      "type": "AVE (Hcamael)",
+      "subsystem": "AppleAVE2",
+      "status": "NOT_INVESTIGATED — likely VPS/SPS/PPS OOB variant, probably dead at VT layer"
+    },
+    {
+      "cve": "CVE-2026-112468",
+      "type": "AVE (Hcamael)",
+      "subsystem": "AppleAVE2",
+      "status": "NOT_INVESTIGATED — same caveat"
+    },
+    {
+      "cve": "CVE-2026-112469",
+      "type": "AVE (Hcamael)",
+      "subsystem": "AppleAVE2",
+      "status": "NOT_INVESTIGATED — same caveat"
+    }
+  ],
+
+  "exclusion_patterns": [
+    "Skip ANY function diff in AppleAVE2 related to SPS/PPS/VPS/MMCO/DPB bounds checks — ALL are defense-in-depth behind VT userspace validation",
+    "Skip ANY IOSurface compressionType or sliceCount validation changes — kernel already clamps",
+    "Skip ANY mach_port_kobject or task_info pointer return changes — all scrubbed to 0",
+    "Skip ANY IORegistry property dictionary kernel pointer changes — systematically scrubbed",
+    "Skip ANY IPC port request table growth changes — grow-once architecture, no race",
+    "Skip ANY ANE/AppleH16ANEInterface symbolIndex or buffer mapping changes — unreachable from sandbox via aned XPC gate",
+    "Skip ANY IOMobileFrameBuffer changes — not in kernelcache, DCP firmware side",
+    "Skip ANY AppleM2ScalerCSCDriver changes — no struct input, no attack surface",
+    "Skip ANY GPU/AGX/DART PTE manipulation changes — hardware isolation, GPU cannot reach kernel",
+    "Skip diffs that only add logging, assertion strings, or telemetry (no behavioral change)",
+    "Skip CoW/vm_fault zero-fill changes UNLESS they introduce a NEW reachable path (not file truncation)",
+    "PRIORITIZE: IOMemoryDescriptor lifecycle (page-level, bypasses type isolation), new IOKit structs (2024+), DER/ASN.1 parsing, VFS/UPL layer, vm_map entry handling, Bluetooth/WiFi/USB kext changes"
+  ],
+
+  "golden_rules": {
+    "rule1_type_isolation": "kalloc_type zones are separate from kalloc_data. No cross-zone spray works. Work at physical page or VM level instead.",
+    "rule2_vt_gatekeeper": "VideoToolbox userspace validates ALL video codec parameters before kernel. Any AVE/AVC exploit needs a VT bypass first.",
+    "rule3_dart_isolation": "GPU VA is hardware-isolated from kernel VA by DART. No GPU→kernel memory access is possible.",
+    "rule4_xpc_gates": "Hardware accelerator kexts (ANE, DCP, ISP) are behind XPC daemons. Direct IOKit fails with kIOReturnNotPermitted.",
+    "rule5_successful_pattern": "kfd (PUAF), ClearSword (VFS OOB), WeightBufs (DMA), DarkSword (CoW) — all work at physical/VM/VFS layer ABOVE type isolation. This is the correct approach.",
+    "rule6_grow_once": "IPC request table grows once then freelist handles everything. No race possible.",
+    "rule7_dcp_firmware": "IOMFB on A18 Pro is DCP firmware, not kernelcache. Cannot analyze from binary."
+  }
+}
