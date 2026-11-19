@@ -115,13 +115,13 @@ Independent re-audit of every 27.0.1 surface. **All verdicts: hardened / benign 
   `0xfffffff00b4112cc` cited in `27.0.1/kernel-zone/reports/trust-boundary.md` — that report is owned
   by another track; the authoritative address for the RO-mutation entry is the value here).
 
-### Kernel R/W primitive — 27 tested-and-eliminated paths (2026-11-09)
-On-device testing of every known path to kernel read/write on 27.0.1 (iPhone 17,2, A18 Pro, build
-24A446). **27 distinct approaches tested, all confirmed dead.** This is the exhaustive negative-result
+### Kernel R/W primitive — 32+ tested-and-eliminated paths (2026-11-19)
+On-device testing of every known path to kernel read/write on 27.0.1 (iPhone 17,2, A17 Pro, build
+24A446). **32+ distinct approaches tested, all confirmed dead.** This is the exhaustive negative-result
 map — documenting *why each path fails* so the next researcher starts from our frontier, not from
 scratch.
 
-**Categories (27 total):**
+**Categories (32+ total):**
 
 | Category | Count | Key kill mechanism |
 |---|---|---|
@@ -136,6 +136,8 @@ scratch.
 | IOMFB | 1 | No IOMobileFrameBuffer kext on A18 Pro; fix is in DCP firmware |
 | Handle Race strategies | 4 | Type isolation (`kalloc_type` vs `kalloc_data`) blocks all cross-zone spray |
 | External (AGX-RW-PoC) | 1 | Targets iOS 18.6.2; depends on ClearSword KRW we don't have |
+| IPC UAF escalation | 1 | iin_object per-entry obfuscation blocks zone layout mapping (Run 8) |
+| IOSurface UAF reclaim | 1 | triggered=true, reclaimed=false; spray doesn't reach freed kalloc.1024 slot (Run 8) |
 
 **Device-confirmed dead (key CVEs):**
 
@@ -166,6 +168,42 @@ scratch.
 work at the physical-page or VM/VFS layer — *above* the zone allocator — to sidestep this entirely.
 
 See [`27.0.1/krw-dead-paths/`](27.0.1/krw-dead-paths/).
+
+### Run 8 findings — AstraSaw on-device (2026-11-19)
+
+Full AstraSaw chain run on iPhone 17,2 (A17 Pro, 27.0.1 / 24A446). **Three major discoveries:**
+
+**1. Comprehensive kptr sanitization confirmed (1.24 MB scanned, 0 pointers)**
+Scanned every userspace API: decmpfs, IOSurface props, mach_msg, task_info, kinfo_proc,
+vm_region, proc_pidfdinfo, host_info, IOSurface selectors 0–30. **Zero kernel pointers.**
+All 13 pcblist sysctls blocked from sandbox (EPERM/ENOENT). `mach_port_kernel_object` returns
+addr=0x0 for all types. This is the fundamental blocker for DarkSword (needs 2 inpcb kaddrs).
+See [`evidence/kptr-comprehensive-sanitization.md`](27.0.1/krw-dead-paths/evidence/kptr-comprehensive-sanitization.md).
+
+**2. iin_object per-entry obfuscation (NOT simple XOR)**
+`mach_port_space_info()` returns obfuscated `iin_object` values. Adjacent port Δ values are random
+(expected 0xE6, got {0x35f, 0xa63, 0xf3f, ...}). Low-3 bits = {4,5,6,7,2} (real kaddrs are 2-aligned).
+One "page" showed 3,497 ports (max 71 per 16KB page). Conclusion: per-entry keyed encryption,
+not global XOR. Zone layout mapping from userspace is dead.
+See [`evidence/iin-object-obfuscation.md`](27.0.1/krw-dead-paths/evidence/iin-object-obfuscation.md).
+
+**3. IOSurface UAF triggers but reclaim fails**
+CVE-2026-112477: re-registration confirmed working on 27.0.1 (sel17→0x0). All 4 trigger variants
+succeed (V_TEARREG 1584/1584, V_LOCKDEG 200/200, REREG+DUALREF 100/100, COMBINED 2823 threads).
+But `reclaimed=false` — the 256-surface spray doesn't fill the freed kalloc.1024 slot. A17 Pro has
+no kernel MTE, so UAF is silent with no observable signal.
+See [`reports/run8-iosurface-reclaim.md`](27.0.1/krw-dead-paths/reports/run8-iosurface-reclaim.md).
+
+**Chain status after Run 8:**
+
+| Stage | Status | Detail |
+|---|---|---|
+| Sandbox escape | ✅ | CVE-2026-112706 CoreMedia fd leak: 6 files, 17KB cross-sandbox |
+| KASLR | ⚠️ | Timing oracle works, but kptr sanitization blocks confirmation |
+| IPC UAF | ⚠️ | Triggers, ACTIVE port, ip_context echo — but iin_object obfuscation blocks escalation |
+| IOSurface UAF | ⚠️ | Triggers — but reclaim fails, no kwrite |
+| DarkSword kread | ❌ | Requires 2 inpcb kaddrs — 0 available from any channel |
+| kR/W | ❌ | **SOLE BLOCKER** — no primitive achieved |
 
 ---
 
