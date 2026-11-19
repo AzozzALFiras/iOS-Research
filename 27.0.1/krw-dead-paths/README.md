@@ -1,13 +1,13 @@
 # kR/W Dead Paths — iOS 27.0.1
 
-**Build:** 24A446 · **Device:** iPhone 17,2 (A18 Pro, `d94ap`)
-**Last updated:** 2026-11-09
+**Build:** 24A446 · **Device:** iPhone 17,2 (A17 Pro, `d94ap`)
+**Last updated:** 2026-11-19
 
 ---
 
 ## Purpose
 
-This directory documents **27 tested-and-eliminated paths** to achieving a kernel Read/Write
+This directory documents **32+ tested-and-eliminated paths** to achieving a kernel Read/Write
 primitive on iOS 27.0.1. Every path was investigated through static reverse engineering, on-device
 testing, or both — and every one is confirmed dead.
 
@@ -19,12 +19,18 @@ evidence, so the next person does not repeat the same work.
 | Stage | Status |
 |---|---|
 | **KASLR defeat** | ✅ Solved — timing oracle v4.1, z-score 7.67 ([`kaslr-info-leak.md`](reports/kaslr-info-leak.md)) |
-| **kR/W primitive** | ❌ **Unsolved — all 27 known paths dead** |
+| **Sandbox escape** | ✅ Solved — CVE-2026-112706 CoreMedia fd leak (6 files, 17KB) |
+| **IPC UAF** | ⚠️ Triggers, ACTIVE port, ip_context echo — blocked by iin_object obfuscation |
+| **IOSurface UAF** | ⚠️ Triggers — reclaim fails (triggered=true, reclaimed=false) |
+| **kR/W primitive** | ❌ **Unsolved — all 32+ known paths dead** |
 | Remaining chain | SPRR flip → F2 cross-domain retype → T1 trust-cache forgery → T2 entitlement gate |
 
 KASLR is not the blocker. **kR/W is the sole remaining obstacle** to a full jailbreak chain on
-iOS 27.0.1. The Handle Race entry (CVE-2026-112477) provides a dangling IOSurface reference and
-spray-reclaim, but converting that to a stable read/write primitive has not been achieved.
+iOS 27.0.1. Two UAFs are confirmed live:
+- **CVE-2026-112474** (IPC UAF) — confused port active, ip_context echo works, but `iin_object`
+  per-entry obfuscation blocks zone layout mapping for escalation.
+- **CVE-2026-112477** (IOSurface UAF) — re-registration works, all trigger variants succeed, but
+  spray doesn't reach freed kalloc.1024 slot. A17 Pro has no MTE = silent UAF.
 
 ---
 
@@ -63,6 +69,11 @@ spray-reclaim, but converting that to a stable read/write primitive has not been
 | J3 | Handle Race Strategy C | Handle Race | — | No kptrs via IOKit selectors 0–35 | [handle-race-strategies.md](reports/handle-race-strategies.md) |
 | J4 | Handle Race Strategy D | Handle Race | — | 200 race attempts, 0 hits on sel 17 | [handle-race-strategies.md](reports/handle-race-strategies.md) |
 | K1 | AGX-RW-iOS-PoC | External | — | Targets iOS 18.6.2 + needs ClearSword KRW | [sptm-iomfb-misc.md](reports/sptm-iomfb-misc.md) |
+| L1 | IOSurface UAF reclaim spray | Reclaim | CVE-2026-112477 | triggered=true, reclaimed=false; spray misses freed slot | [run8-iosurface-reclaim.md](reports/run8-iosurface-reclaim.md) |
+| M1 | IPC UAF escalation via zone GC | Escalation | CVE-2026-112474 | iin_object per-entry obfuscation blocks zone layout | [evidence](evidence/iin-object-obfuscation.md) |
+| M2 | DarkSword inpcb discovery | kptr Leak | — | 0 kptrs from ALL channels (1.24MB scanned) | [evidence](evidence/kptr-comprehensive-sanitization.md) |
+| M3 | IOSurface selector kptr probe | kptr Leak | — | Selectors 0-30: 0 kptrs in scalar/struct outputs | [evidence](evidence/kptr-comprehensive-sanitization.md) |
+| M4 | pcblist sysctl (13 variants) | kptr Leak | — | ALL blocked from sandbox: EPERM or ENOENT | [evidence](evidence/kptr-comprehensive-sanitization.md) |
 
 ---
 
@@ -79,6 +90,7 @@ spray-reclaim, but converting that to a stable read/write primitive has not been
 | [`kaslr-info-leak.md`](reports/kaslr-info-leak.md) | KASLR info leak paths (dead, but KASLR solved) | A1–A7 |
 | [`sptm-iomfb-misc.md`](reports/sptm-iomfb-misc.md) | SPTM / IOMFB / external references | H1–H3, I1, K1 |
 | [`lessons-learned.md`](reports/lessons-learned.md) | Seven key lessons from 27 failed paths | — |
+| [`run8-iosurface-reclaim.md`](reports/run8-iosurface-reclaim.md) | IOSurface UAF reclaim failure analysis (Run 8) | L1 |
 
 ## Evidence
 
@@ -89,13 +101,15 @@ spray-reclaim, but converting that to a stable read/write primitive has not been
 | [`ave-vt-gatekeeper.md`](evidence/ave-vt-gatekeeper.md) | VT userspace validates bounds before kernel |
 | [`type-isolation-zones.md`](evidence/type-isolation-zones.md) | `kalloc_type<IOSurface>` is isolated from `kalloc_data` |
 | [`gpu-uat-isolation.md`](evidence/gpu-uat-isolation.md) | UAT prevents GPU access to kernel memory |
+| [`iin-object-obfuscation.md`](evidence/iin-object-obfuscation.md) | iin_object uses per-entry encryption, not simple XOR (Run 8) |
+| [`kptr-comprehensive-sanitization.md`](evidence/kptr-comprehensive-sanitization.md) | 1.24MB scanned, 0 kptrs from ANY userspace API (Run 8) |
 
 ---
 
 ## Statistics
 
 ```
- Dead paths total:           27
+ Dead paths total:           32+
  ─────────────────────────────
  KASLR Info Leak:              7   (A1–A7) — dead but KASLR solved via timing oracle
  GPU / Metal:                  4   (B1–B4)
@@ -108,6 +122,8 @@ spray-reclaim, but converting that to a stable read/write primitive has not been
  Display / IOMFB:              1   (I1)
  Handle Race Strategies:       4   (J1–J4)
  External Reference:           1   (K1)
+ IOSurface UAF Reclaim:        1   (L1)     ← device-confirmed 2026-11-19 (Run 8)
+ Escalation / kptr Leak:       4   (M1–M4)  ← device-confirmed 2026-11-19 (Run 8)
  ─────────────────────────────
  Device-confirmed dead:       12
  Binary-confirmed dead:        3

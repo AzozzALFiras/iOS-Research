@@ -1,6 +1,6 @@
 # ملخص الطرق الميتة — iOS 27.0.1 / iPhone 17,2 (A18 Pro)
 
-**تاريخ التوليد:** 2026-11-09
+**تاريخ التوليد:** 2026-11-19 (محدّث بنتائج Run 8)
 **الغرض:** مرجع سريع لتحليل فيرموير 27.2.1 — تجنّب كل ما هو مذكور هنا
 
 ---
@@ -21,10 +21,13 @@
 | Handle Race Strategies | 4 | Type Isolation تعزل الـ zones |
 | ScalerCSC | 1 | لا struct input — zero attack surface |
 | External | 1 | iOS خاطئ + يعتمد على primitive ما عندنا |
-| **المجموع** | **28+** | |
+| IOSurface UAF Reclaim | 1 | triggered=true, reclaimed=false — spray لا يصل الفراغ |
+| Escalation / kptr Leak | 4 | iin_object مشفّر + 0 kptrs من كل القنوات (1.24MB مفحوصة) |
+| **المجموع** | **32+** | |
 
-**CVEs ميتة مؤكدة:** 10
+**CVEs ميتة مؤكدة:** 12
 **باقات مأكدة من 27.0.1→27.2:** 14 (كلها variant-hunted، كلها سلبية)
+**Run 8 (2026-11-19):** 3 اكتشافات — sanitization شاملة، iin_object مشفّر، reclaim فاشل
 
 ---
 
@@ -49,6 +52,15 @@ IPC request table تنمو مرة واحدة ثم freelist تتولى. لا race
 ### 6. الجيلبريكات الناجحة تعمل فوق type isolation
 kfd (PUAF)، ClearSword (VFS OOB)، WeightBufs (DMA)، DarkSword (CoW) — كلها على المستوى الفيزيائي/VM/VFS.
 
+### 7. iin_object مشفّر — لا يمكن استخراج kaddrs من space_info (Run 8)
+`mach_port_space_info()` يستخدم تشفير per-entry وليس XOR بسيط. الفروق بين البورتات عشوائية (expected 0xE6, got random). Low-3 bits = {4,5,6,7,2}. صفحة واحدة أظهرت 3,497 بورت (max 71). Zone layout mapping مستحيل.
+
+### 8. kptr sanitization شاملة — 0 مؤشرات من 1.24MB (Run 8)
+فحص كل API: decmpfs, IOSurface, mach_msg, task_info, kinfo_proc, vm_region, proc_pidfdinfo, host_info, IOSurface selectors. كل 13 pcblist sysctl ممنوعة. `mach_port_kernel_object` يرجع 0x0. لا يوجد أي قناة لتسريب عنوان kernel من الساندبوكس.
+
+### 9. IOSurface UAF يتفعّل لكن reclaim يفشل (Run 8)
+CVE-2026-112477: re-registration ناجح على 27.0.1. كل variants تنجح. لكن spray 256 surface لا يملأ الفراغ في kalloc.1024. A17 Pro بدون MTE = UAF صامت بدون أي إشارة.
+
 ---
 
 ## ما يجب تجنبه في تحليل 27.2.1
@@ -62,6 +74,9 @@ kfd (PUAF)، ClearSword (VFS OOB)، WeightBufs (DMA)، DarkSword (CoW) — كل�
 7. **لا تحلل IPC port request table** — grow-once architecture
 8. **لا تبني على أي spray-based kR/W** — type isolation تمنع
 9. **تخطّ diffs الي فقط logging/assertion/telemetry** — لا تغيير سلوكي
+10. **لا تعتمد على space_info لاستخراج kaddrs** — iin_object مشفّر per-entry
+11. **لا تعتمد على أي pcblist sysctl** — كلها ممنوعة من الساندبوكس
+12. **لا تعتمد على proc_pidfdinfo لتسريب inpcb** — كل الحقول مصفّرة
 
 ### ركّز بدلاً على:
 - **IOMemoryDescriptor lifecycle** — page-level، يتجاوز type isolation
